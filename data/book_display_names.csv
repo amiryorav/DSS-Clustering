@@ -1,0 +1,316 @@
+book,display_name
+Amos,Amos
+Chr,Chronicles
+Dan,Daniel
+Deut,Deuteronomy
+Eccl,Ecclesiastes
+Esth,Esther
+Ex,Exodus
+Ezek,Ezekiel
+Ezra,Ezra
+Gen,Genesis
+Hab,Habakkuk
+Hag,Haggai
+Hos,Hosea
+Is,Isaiah
+Jer,Jeremiah
+Job,Job
+Joel,Joel
+Jonah,Jonah
+Josh,Joshua
+Judg,Judges
+Kings,Kings
+Lam,Lamentations
+Lev,Leviticus
+Mal,Malachi
+Mic,Micah
+Nah,Nahum
+Neh,Nehemiah
+Num,Numbers
+Obad,Obadiah
+Prov,Proverbs
+Psa,Psalms
+Ruth,Ruth
+Sam,Samuel
+Song,Song of Songs
+Zech,Zechariah
+Zeph,Zephaniah
+Arak,Arakhin
+Arayot,Arayot
+AvodaZ,Avodah Zarah
+Avot,Avot
+BabaB,Bava Batra
+BabaM,Bava Metzia
+BabaQ,Bava Kamma
+Bek,Bekhorot
+Ber,Berakhot
+Betza,Beitzah
+Bik,Bikkurim
+Dem,Demai
+Ed,Eduyot
+Eruv,Eruvin
+Git,Gittin
+Hagig,Chagigah
+Hal,Challah
+Hor,Horayot
+Hul,Chullin
+Kelim,Kelim
+Ker,Keritot
+Ketub,Ketubot
+Kil,Kilayim
+Maas,Maasrot
+Maaser2,Maaser Sheni
+Mak,Makkot
+Maksh,Makhshirin
+Meg,Megillah
+Meil,Meilah
+Menah,Menachot
+Mid,Middot
+Miqw,Mikvaot
+MoedQa,Moed Katan
+Nazir,Nazir
+Ned,Nedarim
+Neg,Negaim
+Nid,Niddah
+Ohol,Oholot
+Orla,Orlah
+Para,Parah
+Pea,Peah
+Pesah,Pesachim
+Qidd,Kiddushin
+Qinnim,Kinnim
+RoshHa,Rosh Hashanah
+Sanh,Sanhedrin
+Shabb,Shabbat
+Sheqal,Shekalim
+Shev,Sheviit
+Shevu,Shevuot
+Sota,Sotah
+Sukk,Sukkah
+Taan,Taanit
+Tamid,Tamid
+Tem,Temurah
+Ter,Terumot
+TevulY,Tevul Yom
+Tohar,Tohorot
+Uqtzin,Uktzin
+Yad,Yadayim
+Yebam,Yevamot
+Yoma,Yoma
+Zavim,Zavim
+Zevah,Zevachim
+11Q11,11Q11 - Apocryphal Psalms
+11Q12,11Q12 - Jubilees
+11Q13,11Q13 - Melchizedek
+11Q14,11Q14 - Sefer ha-Milhamah (Book of War)
+11Q17,11Q17 - Songs of the Sabbath Sacrifice
+11Q19,11Q19 - Temple Scroll a
+11Q20,11Q20 - Temple Scroll b
+11Q5,11Q5 - Great Psalms Scroll
+1Q14,1Q14 - Pesher Micah
+1Q16,1Q16 - Pesher Psalms
+1Q17,1Q17 - Jubilees
+1Q19,1Q19 - Book of Noah
+1Q22,1Q22 - Words of Moses
+1Q25,1Q25 - Apocryphal Prophecy
+1Q27,1Q27 - Book of Mysteries
+1Q29,1Q29 - Liturgy of the Three Tongues of Fire
+1Q34bis,1Q34bis - Festival Prayers
+1Q36,1Q36 - Hymns
+1QHa,1QHa - Hodayot (Thanksgiving Hymns)
+1QM,1QM - War Scroll
+1QpHab,1QpHab - Pesher Habakkuk
+1QS,1QS - Community Rule (Serekh ha-Yahad)
+1QSa,1QSa - Rule of the Congregation
+1QSb,1QSb - Rule of Blessings
+2Q18,2Q18 - Ben Sira
+3Q15,3Q15 - Copper Scroll
+4Q158,4Q158 - Reworked Pentateuch a
+4Q159,4Q159 - Ordinances a
+4Q160,4Q160 - Vision of Samuel
+4Q161,4Q161 - Pesher Isaiah a
+4Q162,4Q162 - Pesher Isaiah b
+4Q163,4Q163 - Pesher Isaiah c
+4Q164,4Q164 - Pesher Isaiah d
+4Q165,4Q165 - Pesher Isaiah e
+4Q166,4Q166 - Pesher Hosea a
+4Q167,4Q167 - Pesher Hosea b
+4Q168,4Q168 - Pesher Micah
+4Q169,4Q169 - Pesher Nahum
+4Q173,4Q173 - Pesher Psalms b
+4Q174,4Q174 - Florilegium
+4Q175,4Q175 - Testimonia
+4Q176,4Q176 - Tanhumim (Consolations)
+4Q176a,4Q176a - Jubilees
+4Q177,4Q177 - Catena A
+4Q179,4Q179 - Apocryphal Lamentations A
+4Q180,4Q180 - Ages of Creation A
+4Q181,4Q181 - Ages of Creation B
+4Q184,4Q184 - Wiles of the Wicked Woman
+4Q186,4Q186 - Horoscope (Physiognomy)
+4Q215a,4Q215a - Time of Righteousness
+4Q216,4Q216 - Jubilees a
+4Q219,4Q219 - Jubilees d
+4Q220,4Q220 - Jubilees e
+4Q221,4Q221 - Jubilees f
+4Q222,4Q222 - Jubilees g
+4Q225,4Q225 - Pseudo-Jubilees a
+4Q226,4Q226 - Pseudo-Jubilees b
+4Q238,4Q238 - Words of Judgement
+4Q249a,4Q249a - Midrash Sefer Moshe (cryptic)
+4Q249b,4Q249b - Cryptic A text
+4Q251,4Q251 - Halakha A
+4Q252,4Q252 - Commentary on Genesis A
+4Q254,4Q254 - Commentary on Genesis C
+4Q255,4Q255 - Community Rule a
+4Q256,4Q256 - Community Rule b
+4Q257,4Q257 - Community Rule c
+4Q258,4Q258 - Community Rule d
+4Q259,4Q259 - Community Rule e
+4Q260,4Q260 - Community Rule f
+4Q261,4Q261 - Community Rule g
+4Q264,4Q264 - Community Rule j
+4Q264a,4Q264a - Halakha B
+4Q265,4Q265 - Miscellaneous Rules
+4Q266,4Q266 - Damascus Document a
+4Q267,4Q267 - Damascus Document b
+4Q268,4Q268 - Damascus Document c
+4Q269,4Q269 - Damascus Document d
+4Q270,4Q270 - Damascus Document e
+4Q271,4Q271 - Damascus Document f
+4Q272,4Q272 - Damascus Document g
+4Q273,4Q273 - Damascus Document h
+4Q274,4Q274 - Tohorot A
+4Q277,4Q277 - Tohorot Bb
+4Q280,4Q280 - Curses
+4Q284,4Q284 - Purification Liturgy
+4Q284a,4Q284a - Harvesting
+4Q285,4Q285 - Sefer ha-Milhamah
+4Q286,4Q286 - Berakhot a
+4Q287,4Q287 - Berakhot b
+4Q298,4Q298 - Words of the Maskil
+4Q299,4Q299 - Mysteries a
+4Q300,4Q300 - Mysteries b
+4Q301,4Q301 - Mysteries c
+4Q302,4Q302 - Admonitory Parable
+4Q306,4Q306 - Men of People Who Err
+4Q317,4Q317 - Phases of the Moon
+4Q319,4Q319 - Otot
+4Q320,4Q320 - Calendrical Document A
+4Q321,4Q321 - Calendrical Document Ba
+4Q321a,4Q321a - Calendrical Document Bb
+4Q324d,4Q324d - Cryptic Liturgical Calendar
+4Q325,4Q325 - Calendrical Document Dd
+4Q334,4Q334 - Ordo
+4Q364,4Q364 - Reworked Pentateuch b
+4Q365,4Q365 - Reworked Pentateuch c
+4Q365a,4Q365a - Temple Scroll related
+4Q366,4Q366 - Reworked Pentateuch d
+4Q367,4Q367 - Reworked Pentateuch e
+4Q368,4Q368 - Apocryphal Pentateuch A
+4Q369,4Q369 - Prayer of Enosh
+4Q370,4Q370 - Admonition on the Flood
+4Q372,4Q372 - Narrative and Poetic Composition b
+4Q374,4Q374 - Discourse on the Exodus and Conquest
+4Q375,4Q375 - Apocryphon of Moses a
+4Q376,4Q376 - Apocryphon of Moses b
+4Q377,4Q377 - Apocryphal Pentateuch B
+4Q378,4Q378 - Apocryphon of Joshua a
+4Q379,4Q379 - Apocryphon of Joshua b
+4Q380,4Q380 - Non-Canonical Psalms A
+4Q381,4Q381 - Non-Canonical Psalms B
+4Q382,4Q382 - Paraphrase of Kings
+4Q384,4Q384 - Apocryphon of Jeremiah B
+4Q385,4Q385 - Pseudo-Ezekiel a
+4Q385a,4Q385a - Apocryphon of Jeremiah Ca
+4Q386,4Q386 - Pseudo-Ezekiel b
+4Q387,4Q387 - Apocryphon of Jeremiah Cb
+4Q388,4Q388 - Pseudo-Ezekiel d
+4Q388a,4Q388a - Apocryphon of Jeremiah Cc
+4Q389,4Q389 - Apocryphon of Jeremiah Cd
+4Q390,4Q390 - Apocryphon of Jeremiah Ce
+4Q391,4Q391 - Pseudo-Ezekiel e
+4Q392,4Q392 - Works of God
+4Q393,4Q393 - Communal Confession
+4Q394,4Q394 - MMT a (Miqsat Maase ha-Torah)
+4Q395,4Q395 - MMT b
+4Q397,4Q397 - MMT d
+4Q398,4Q398 - MMT e
+4Q400,4Q400 - Songs of the Sabbath Sacrifice a
+4Q401,4Q401 - Songs of the Sabbath Sacrifice b
+4Q402,4Q402 - Songs of the Sabbath Sacrifice c
+4Q403,4Q403 - Songs of the Sabbath Sacrifice d
+4Q404,4Q404 - Songs of the Sabbath Sacrifice e
+4Q405,4Q405 - Songs of the Sabbath Sacrifice f
+4Q408,4Q408 - Apocryphon of Moses c
+4Q409,4Q409 - Liturgical Work A
+4Q412,4Q412 - Sapiential-Didactic Work A
+4Q414,4Q414 - Ritual of Purification A
+4Q415,4Q415 - Instruction a
+4Q416,4Q416 - Instruction b
+4Q417,4Q417 - Instruction c
+4Q418,4Q418 - Instruction d
+4Q418a,4Q418a - Instruction e
+4Q419,4Q419 - Instruction-like Composition A
+4Q420,4Q420 - Ways of Righteousness a
+4Q421,4Q421 - Ways of Righteousness b
+4Q422,4Q422 - Paraphrase of Genesis and Exodus
+4Q423,4Q423 - Instruction g
+4Q424,4Q424 - Instruction-like Composition B
+4Q426,4Q426 - Sapiential-Hymnic Work A
+4Q427,4Q427 - Hodayot a
+4Q428,4Q428 - Hodayot b
+4Q429,4Q429 - Hodayot c
+4Q430,4Q430 - Hodayot d
+4Q431,4Q431 - Hodayot e
+4Q432,4Q432 - Hodayot f
+4Q433a,4Q433a - Hodayot-like Text B
+4Q434,4Q434 - Barkhi Nafshi a
+4Q435,4Q435 - Barkhi Nafshi b
+4Q437,4Q437 - Barkhi Nafshi d
+4Q438,4Q438 - Barkhi Nafshi e
+4Q440,4Q440 - Hodayot-like Text C
+4Q443,4Q443 - Personal Prayer
+4Q448,4Q448 - Apocryphal Psalm and Prayer
+4Q458,4Q458 - Narrative A
+4Q460,4Q460 - Narrative Work and Prayer
+4Q462,4Q462 - Narrative C
+4Q464,4Q464 - Exposition on the Patriarchs
+4Q471,4Q471 - War Scroll-like Text B
+4Q471a,4Q471a - Polemical Text
+4Q477,4Q477 - Rebukes Reported by the Overseer
+4Q487,4Q487 - Sapiential Work A b
+4Q490,4Q490 - War Scroll-like fragments
+4Q491,4Q491 - War Scroll a
+4Q492,4Q492 - War Scroll b
+4Q493,4Q493 - War Scroll c
+4Q495,4Q495 - War Scroll e
+4Q496,4Q496 - War Scroll f
+4Q499,4Q499 - Hymns and Prayers
+4Q501,4Q501 - Lament
+4Q502,4Q502 - Ritual of Marriage
+4Q503,4Q503 - Daily Prayers
+4Q504,4Q504 - Words of the Luminaries a
+4Q506,4Q506 - Words of the Luminaries c
+4Q508,4Q508 - Festival Prayers b
+4Q509,4Q509 - Festival Prayers c
+4Q510,4Q510 - Songs of the Sage a
+4Q511,4Q511 - Songs of the Sage b
+4Q512,4Q512 - Ritual of Purification B
+4Q513,4Q513 - Ordinances b
+4Q514,4Q514 - Ordinances c
+4Q517,4Q517 - Unclassified fragments
+4Q521,4Q521 - Messianic Apocalypse
+4Q522,4Q522 - Prophecy of Joshua
+4Q524,4Q524 - Temple Scroll related
+4Q525,4Q525 - Beatitudes
+4Q556a,4Q556a - Vision (Aramaic)
+4Q584,4Q584 - Aramaic fragments
+4Q88,4Q88 - Psalms f
+5Q13,5Q13 - Rule
+6Q15,6Q15 - Damascus Document
+6Q18,6Q18 - Hymnic Composition
+6Q9,6Q9 - Apocryphon of Samuel-Kings
+CD,CD - Cairo Damascus Document
+PAM43676,PAM43676 - Unidentified fragments (plate)
+PAM43680,PAM43680 - Unidentified fragments (plate)

@@ -1,0 +1,207 @@
+"""Vectorize step: build book × signature count matrix (spec §8.3)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+
+import pandas as pd
+import reflex as rx
+from sqlmodel import select
+
+from dss_clustering.models import LemmaRow
+from dss_clustering.pipeline.matrix import build_count_matrix
+from dss_clustering.pipeline.runtime import MatrixBundle, clear_bundle, put_bundle
+from dss_clustering.states.data_state import VALID_ROW_TYPE, DataState
+from dss_clustering.states.feature_state import FeatureState
+
+
+def _fingerprint(
+    document_ids: list[int],
+    feature_mode: str,
+    active_columns: list[str],
+    ignore_proper_names: bool,
+) -> str:
+    payload = {
+        "docs": sorted(document_ids),
+        "mode": feature_mode,
+        "cols": list(active_columns),
+        "ignore": bool(ignore_proper_names),
+    }
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+class VectorizeState(rx.State):
+    """Automatic count-matrix build with status summary (no feature controls)."""
+
+    is_running: bool = False
+    has_matrix: bool = False
+    is_stale: bool = True
+    status_message: str = "Select books and features, then build the count matrix."
+    progress_message: str = ""
+
+    n_documents: int = 0
+    n_signatures: int = 0
+    n_source_rows: int = 0
+    n_nnz: int = 0
+    nnz_pct: float = 0.0
+    nnz_pct_label: str = "—"
+    built_fingerprint: str = ""
+    built_summary: str = ""
+
+    def _client_token(self) -> str:
+        return self.router.session.client_token
+
+    @rx.event
+    async def refresh_stale(self):
+        data = await self.get_state(DataState)
+        features = await self.get_state(FeatureState)
+        if not data.selected_document_ids or not features.is_ready:
+            self.is_stale = True
+            return
+        fp = _fingerprint(
+            data.selected_document_ids,
+            features.mode,
+            list(features.active_columns),
+            bool(features.should_ignore_proper_names),
+        )
+        self.is_stale = (not self.has_matrix) or (fp != self.built_fingerprint)
+
+    @rx.event(background=True)
+    async def build_matrix(self):
+        async with self:
+            data = await self.get_state(DataState)
+            features = await self.get_state(FeatureState)
+            doc_ids = list(data.selected_document_ids)
+            active_columns = list(features.active_columns)
+            feature_mode = features.mode
+            ignore = bool(features.should_ignore_proper_names)
+            token = self._client_token()
+
+            if not doc_ids:
+                self.status_message = (
+                    "Select at least one book in Data before vectorizing."
+                )
+                self.has_matrix = False
+                self.is_stale = True
+                return
+            if not active_columns:
+                self.status_message = (
+                    "Select feature columns in Features before vectorizing."
+                )
+                self.has_matrix = False
+                self.is_stale = True
+                return
+
+            self.is_running = True
+            self.progress_message = "Loading lemma rows from the database…"
+            self.status_message = self.progress_message
+
+        try:
+            load_cols = ["document_id", *active_columns]
+            if ignore and "subtype" not in load_cols:
+                load_cols.append("subtype")
+            seen: set[str] = set()
+            ordered_cols: list[str] = []
+            for c in load_cols:
+                if c not in seen:
+                    seen.add(c)
+                    ordered_cols.append(c)
+
+            entities = [getattr(LemmaRow, c) for c in ordered_cols]
+            with rx.session() as session:
+                rows = session.exec(
+                    select(*entities)
+                    .where(LemmaRow.document_id.in_(doc_ids))
+                    .where(LemmaRow.row_type == VALID_ROW_TYPE)
+                ).all()
+
+            async with self:
+                self.progress_message = (
+                    f"Building signatures for {len(rows):,} rows…"
+                )
+                self.status_message = self.progress_message
+
+            if not rows:
+                async with self:
+                    clear_bundle(token)
+                    self.has_matrix = False
+                    self.is_stale = True
+                    self.n_documents = 0
+                    self.n_signatures = 0
+                    self.n_source_rows = 0
+                    self.n_nnz = 0
+                    self.nnz_pct = 0.0
+                    self.nnz_pct_label = "—"
+                    self.built_fingerprint = ""
+                    self.built_summary = ""
+                    self.status_message = (
+                        "No valid lemma rows found for the selected books."
+                    )
+                    self.progress_message = ""
+                    self.is_running = False
+                return
+
+            if len(ordered_cols) == 1:
+                df = pd.DataFrame({ordered_cols[0]: list(rows)})
+            else:
+                df = pd.DataFrame(rows, columns=ordered_cols)
+
+            matrix, out_doc_ids, signatures, n_source = build_count_matrix(
+                df,
+                active_columns,
+                ignore_proper_names=ignore,
+                document_ids=doc_ids,
+            )
+            fp = _fingerprint(doc_ids, feature_mode, active_columns, ignore)
+            put_bundle(
+                token,
+                MatrixBundle(
+                    count_matrix=matrix,
+                    document_ids=out_doc_ids,
+                    signatures=signatures,
+                    n_source_rows=n_source,
+                    fingerprint=fp,
+                    feature_mode=feature_mode,
+                    active_columns=tuple(active_columns),
+                    ignore_proper_names=ignore,
+                ),
+            )
+
+            cols = ", ".join(active_columns)
+            async with self:
+                self.has_matrix = True
+                self.is_stale = False
+                self.n_documents = int(matrix.shape[0])
+                self.n_signatures = int(matrix.shape[1])
+                self.n_source_rows = int(n_source)
+                self.n_nnz = int(matrix.nnz)
+                total_cells = self.n_documents * self.n_signatures
+                self.nnz_pct = (
+                    round(100.0 * self.n_nnz / total_cells, 2) if total_cells else 0.0
+                )
+                self.nnz_pct_label = f"{self.nnz_pct:.2f}%"
+                self.built_fingerprint = fp
+                self.built_summary = (
+                    f"{feature_mode} · {cols}"
+                    + (" · ignore proper-name" if ignore else "")
+                )
+                self.status_message = (
+                    f"Built {self.n_documents} × {self.n_signatures} count matrix "
+                    f"from {self.n_source_rows:,} valid rows "
+                    f"({self.n_nnz:,} non-zeros, {self.nnz_pct_label})."
+                )
+                self.progress_message = ""
+                self.is_running = False
+                from dss_clustering.states.rescale_state import RescaleState
+
+                return RescaleState.apply
+        except Exception as exc:  # noqa: BLE001 — surfaced in UI
+            async with self:
+                clear_bundle(token)
+                self.has_matrix = False
+                self.is_stale = True
+                self.status_message = f"Vectorize failed: {exc}"
+                self.progress_message = ""
+                self.is_running = False

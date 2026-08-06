@@ -1,0 +1,7 @@
+# Reflex Python Rules
+- Always use `import reflex as rx`.
+- State classes MUST inherit from `rx.State` (e.g., `class State(rx.State):`).
+- Database models MUST inherit from `rx.Model` with `table=True`.
+- UI functions MUST return Reflex components like `rx.vstack()`, `rx.hstack()`, `rx.container()`.
+- Do NOT generate HTML, CSS, JavaScript, or Streamlit code.
+- Event handlers on components must reference `State` methods (e.g., `on_click=State.my_method`).

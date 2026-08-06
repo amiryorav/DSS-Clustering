@@ -1,0 +1,13 @@
+.web
+.venv
+.env
+*.db
+*.pkl
+assets/external/
+*.py[cod]
+__pycache__/
+.states
+reflex.log
+*.log
+.DS_Store
+Thumbs.db
