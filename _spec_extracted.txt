@@ -1,0 +1,786 @@
+Hebrew corpus stylometry explorer — specification
+Contents
+1. Introduction
+2. Overview
+3. Architecture and technology stack
+4. Data model
+5. Cross-cutting design decisions
+5.1 Color system
+5.2 Distance metric and linkage validity
+5.3 In-app help
+6. Pipeline dependency graph and caching strategy
+7. Research definitions and formulas
+8. Pipeline steps in detail
+8.1 Data
+8.2 Features
+8.3 Vectorizing
+8.4 Rescaling
+8.5 SVD
+8.6 3D plot
+8.7 Dendrogram
+8.8 Data tables
+8.9 Manual cluster selection
+8.10 Saved analysis configurations
+8.11 Export
+9. Authentication and activity logging
+10. Non-functional requirements
+11. Suggested build order
+12. References
+
+1. Introduction
+This document specifies a web application for interactively exploring lexical and morphological similarity between ancient Hebrew texts. It is written for a developer approaching the project for the first time, so it includes the research context needed to understand why each part of the tool exists, alongside the full technical design.
+Research background. The underlying research compares three bodies of Hebrew text from different historical periods: Mikra (the Hebrew Bible), Mishna (early rabbinic Hebrew, codified around 200 CE), and the Dead Sea Scrolls (DSS). Hebrew vocabulary and grammar changed measurably across these periods, so the words and grammatical forms a given text uses can serve as evidence for when, and in what linguistic setting, it was written. This project applies that idea computationally: each book or scroll is reduced to a numeric profile of its word (lemma) usage or its morphological-feature usage, and books are then compared, clustered, and visualized by how similar those profiles are to one another. One specific group of scrolls — the fragments making up MMT (Miqsat Ma'ase ha-Torah, catalogued as 4Q394 through 4Q398) — receives particular attention throughout as a focal case study, since dating it is a specific point of interest.
+From script to site. This analysis currently exists as two linear Python scripts, run by hand in Google Colab: one based on lemma frequencies, one on combinations of morphological attributes (part of speech, gender, verb pattern, and so on). Each produces a fixed set of static plots, PDF reports, and an Excel workbook per run. Changing any parameter — which books to include, how to weight features, how many dimensions to reduce to, which clustering method to use — means editing the script and re-running it from the top. This specification describes rebuilding both scripts as a single interactive site, built with Reflex (a Python full-stack web framework), where those parameters become on-screen controls and the static outputs become live, explorable visualizations.
+Scope of this document. What follows is a complete functional and technical specification: system architecture, database schema, exact mathematical definitions for every analytical function the pipeline relies on, the behavior and controls of every step, and Python pseudocode for the server-side logic behind each one.
+2. Overview
+The pipeline, end to end. The site walks a user through ten stages, each feeding the next:
+Data — choose which books, and which of the three corpora, to include; assign each a display color.
+Features — choose the analytical basis: individual word lemmas, or a combination of morphological attributes.
+Vectorizing — an automatic step with no user-facing controls: build a book x feature count matrix.
+Rescaling — choose how raw counts are weighted: untouched, term-frequency normalized, or full TF-IDF.
+SVD — optionally compress the feature space into a smaller number of composite dimensions, either at a fixed size or by sweeping many sizes and keeping the best.
+3D plot — an interactive 3D scatter of the books, positioned by SVD, UMAP, or t-SNE, colored by corpus/book identity or by cluster membership.
+Dendrogram — a hierarchical clustering tree (Ward or average linkage), with an adjustable cut height that defines discrete clusters.
+Data tables — "top / distinctive / gap" feature tables for any corpus, cluster, or individual book.
+Manual cluster tool — pick any set of books by hand and run the same comparison logic against a chosen reference group.
+Export — save any table (CSV, Excel, or PDF) or plot (PNG or PDF) currently on screen.
+A closely related capability, saving and reloading a full pipeline configuration rather than re-setting every control by hand, is covered alongside these steps in section 8.
+The core method: one signature per row. Both analytical modes work the same underlying way, which is worth understanding before the per-step detail below. Each occurrence in the source data — one word, in one verse, in one book — is reduced to a single "signature" string. In lemma mode that signature is just the word's lemma. In morphology mode it is the selected morphological attributes joined together (e.g. pos=Verb|gender=M|number=S), with one deliberate exception: proper names collapse to a single atomic signature (subtype=properName) regardless of their other grammar, since a name's part of speech or gender is not usually the interesting thing about it. Every occurrence's signature is then one-hot encoded and summed up to the book level, producing a book x signature count matrix — the shared starting point for every step that follows.
+Analysis space vs. visualization space. SVD is not just one 3D-plot option among three — it is also what feeds the dendrogram, the feature tables, and the purity/consistency metrics. UMAP and t-SNE, by contrast, exist purely to draw the 3D plot: they never influence clustering, feature tables, or any statistical summary elsewhere in the app. This distinction matters enough to state outright, since it would otherwise be easy to assume a visually tight t-SNE grouping means the same thing as a dendrogram cluster — it doesn't, and the two are not derived from the same computation. Section 6 diagrams this split, and section 7 gives the exact formulas involved.
+Recomputation is not uniform. Some parameter changes are nearly free (recoloring a plot); others are expensive (refitting a twenty-model SVD sweep). The dependency graph and caching strategy set out in section 6 is built around that distinction, so the interface stays responsive even though the underlying computation is not uniformly cheap.
+Document structure. The next section covers the technology stack; after that, the full database schema; then three cross-cutting design decisions that apply across multiple steps; then the pipeline dependency graph and caching approach; then a section giving exact, unambiguous definitions for every analytical function named later in the document; then each of the ten pipeline steps in full detail, with UI, backend behavior, and pseudocode; and finally authentication, non-functional requirements, and a suggested build order.
+3. Architecture and technology stack
+The application is built entirely in Python using Reflex, a framework that compiles one Python codebase into a Next.js/React frontend and a FastAPI backend, synchronized over websockets — there is no separate JavaScript codebase to maintain.
+Authentication. Google OAuth via the reflex-google-auth package (google_login, google_oauth_provider, require_google_login, GoogleAuthState.tokeninfo). Reflex's AI Builder also offers a built-in Google Auth integration, for teams building through that flow instead of hand-written pages. Login is open to any Google account — there is no invite list or approval step. Regardless of which route is used: tokens should live in backend-only state, sessions should be re-validated inside every event handler that touches private data (not only at the page-load redirect), and anything statically rendered in the frontend should be treated as public even behind a login wall — only state-sourced data is genuinely protected.
+Database — PostgreSQL. Reflex's data layer is SQLModel over SQLAlchemy regardless of the underlying engine; using Postgres is a db_url change in rxconfig.py (postgresql+psycopg://user:password@host:5432/dbname) plus installing a driver (psycopg[binary]). Schema changes go through Alembic (reflex db init / makemigrations / migrate). Postgres is the right choice given that real user accounts mean real concurrent access, which Postgres handles far better than SQLite.
+3D plot. rx.plotly, which renders a plotly.graph_objects.Figure object directly.
+Dendrogram. Also rendered with rx.plotly rather than rx.pyplot, so that clicking a leaf can be captured as a UI event (see the manual cluster tool, section 8.9). rx.pyplot produces only a static image with no per-element click detection. The dendrogram's line layout is still computed by SciPy exactly as it would be for a static plot — dendrogram(Z, no_plot=True) returns icoord/dcoord/ivl, the coordinates of every line segment — those coordinates are simply drawn as Plotly line traces, with an invisible marker at each leaf as the click target, instead of being handed to matplotlib.
+Click interactions. rx.plotly supports on_click as an event trigger, returning point-level data (points[0].customdata, etc.). This area of Reflex has changed over time; its exact current behavior should be confirmed against the specific Reflex version in use before it becomes a structural dependency. Both handlers that consume this payload — the 3D plot and the dendrogram, sections 8.6 and 8.7 — go through one shared extraction helper rather than each parsing it independently, so a schema change is a one-line fix rather than two. Worth a small integration test on top of that, one that clicks a point and asserts the expected payload shape, so a Reflex version bump that changes the schema fails a test rather than silently breaking click-to-select in production.
+Tables. Reflex's built-in AG Grid component.
+Exports. rx.download triggers file downloads for content built server-side. Table PDFs use reportlab (Table/SimpleDocTemplate) for a plain, styled result — there is no existing code to port for this piece, so it is new regardless of which library is chosen.
+Help content. A small per-step toggle button revealing a documentation panel, backed by a static Python dictionary rather than anything database-driven, since it is fixed documentation rather than user data.
+New Python dependencies beyond the two source scripts: umap-learn, psycopg[binary], reflex-google-auth, cachetools, reportlab (or weasyprint, for an HTML-to-PDF approach instead).
+4. Data model
+`documents` is the stable identity for every book/scroll — introduced so that selections, colors, and saved clusters reference a durable integer id rather than a human-readable label. DSS fragment labels in particular (4Q394, 4Q395, ...) are exactly the kind of label that could later be split, merged, or renamed as cataloguing evolves, and nothing else in the schema should depend on that label staying fixed.
+column
+type
+notes
+id
+serial, PK
+book
+text, unique, indexed
+the label as it appears in the source data, e.g. '4Q394' or 'Genesis'
+corpus
+text, indexed
+mikra / mishna / dss
+
+`lemma_rows` holds the source data — one row per word/morpheme occurrence — including the morphological columns as first-class fields alongside the lemma.
+column
+type
+notes
+id
+serial, PK
+document_id
+int, FK to documents.id, indexed
+verse_id
+text, nullable
+row_type
+text
+only rows where row_type == 'NNN' are included
+clean_lemma
+text
+pos, gender, number, person, tense, binyan, state, subtype
+text, nullable
+the morphological attribute columns
+
+The document list is still built dynamically — SELECT * FROM documents — so adding rows to lemma_rows (against an existing or new document_id) is enough to update the UI; documents itself only needs a new row when a genuinely new book/scroll is added.
+`corpus_colors` (corpus PK, color) and `book_colors` (document_id PK/FK, color nullable) hold the display-color settings described in the color system section below. A null book_colors entry means "use the corpus default"; a row present means "override for this book."
+`manual_clusters` stores hand-picked book groups saved from the manual cluster tool.
+column
+type
+notes
+id
+serial, PK
+owner_user_id
+int, FK to users.id
+name
+text
+document_ids
+jsonb
+array of document ids, not book-name strings
+comparison_scope_type
+text
+corpus / all_other_selected / existing_cluster
+comparison_scope_value
+text, nullable
+corpus name, or existing-cluster id
+created_at
+timestamptz
+
+`saved_analysis_configs` stores a full pipeline configuration — every control from Data through Dendrogram — as a named, reloadable preset. This is distinct from manual_clusters: a manual cluster is one ad hoc group of books; a saved analysis configuration is the entire parameter set that produced a particular view, letting someone return to (or share) that exact view later. Section 7 defines the AnalysisConfig shape this column serializes, and section 8.10 covers the save/load UI.
+column
+type
+notes
+id
+serial, PK
+owner_user_id
+int, FK to users.id
+name
+text
+config
+jsonb
+serialized AnalysisConfig, section 7
+created_at
+timestamptz
+
+`users` holds the account created for each person who signs in with Google.
+column
+type
+notes
+id
+serial, PK
+google_sub
+text, unique
+GoogleAuthState.tokeninfo['sub']
+email
+text
+name
+text, nullable
+created_at, last_login_at
+timestamptz
+
+`activity_log` records user activity at a coarse grain — logins, exports, and manual-cluster/config saves — rather than every individual parameter change.
+column
+type
+notes
+id
+serial, PK
+user_id
+int, FK to users.id
+timestamp
+timestamptz
+action
+text
+e.g. login, export_table, manual_cluster_saved, analysis_config_saved
+details
+jsonb
+free-form payload specific to the action type
+
+5. Cross-cutting design decisions
+5.1 Color system
+Two independent color layers apply across the visualizations:
+Identity color — a corpus default, optionally overridden per book (keyed by document_id, section 4) — drives 3D-plot marker color and dendrogram leaf-label color. Resolution order: book override, then corpus default, then a gray fallback.
+Cluster color — an automatically generated palette assigned to whichever clusters exist at the current dendrogram cut height — drives dendrogram branch/link color, and is also available as a 3D-plot coloring option. The 3D plot toggles between identity and cluster coloring; the dendrogram always shows both at once — leaves by identity, branches by cluster.
+5.2 Distance metric and linkage validity
+Linkage method
+Allowed distance metric
+ward
+euclidean only — locked in the UI, not offered as a choice
+average
+euclidean or cosine — user's choice
+
+Selecting ward should force the metric control to euclidean and disable it, rather than allowing an invalid combination to be built — Ward's method is only mathematically well-defined for Euclidean distance. Note that this is the linkage/metric used to render the dendrogram itself; the SVD sweep's own internal scoring is fixed to ward/euclidean regardless of this choice, for reasons covered in section 7.
+5.3 In-app help
+Each step has a small "(?)" toggle button revealing a short documentation panel. Content is static — documentation, not computed data — and lives in one Python dictionary rather than the database:
+HELP_CONTENT = {
+    "svd": {
+        "title": "What SVD is doing here",
+        "body": (
+            "SVD (used the way LSA uses it) compresses thousands of sparse "
+            "feature columns into a handful of composite dimensions that "
+            "capture most of the shared variation between books. The sweep "
+            "tries many dimension counts and keeps the one whose cophenetic "
+            "correlation is highest once past the plateau -- see 'cophenetic "
+            "correlation' below. That score selects dimensionality only; it "
+            "isn't evidence that the resulting clusters are linguistically "
+            "meaningful on its own."
+        ),
+    },
+    "cophenetic_correlation": {
+        "title": "Cophenetic correlation",
+        "body": (
+            "How faithfully a Ward/Euclidean dendrogram's merge heights "
+            "reflect the actual pairwise distances between books in a given "
+            "embedding. Used here only to pick SVD dimensionality -- not as "
+            "evidence of corpus separation, cluster validity, or "
+            "historical/linguistic significance."
+        ),
+    },
+    "top_features": {
+        "title": "Top features",
+        "body": "The features this group of books uses most, in absolute terms -- no comparison to anything else.",
+    },
+    "distinctive_features": {
+        "title": "Distinctive features",
+        "body": (
+            "Features especially characteristic of this group relative to "
+            "the comparison group -- not just common here, but notably more "
+            "common here than there. High usage alone doesn't make a "
+            "feature distinctive; a large gap between the two groups does."
+        ),
+    },
+    "gap_features": {
+        "title": "Gap features",
+        "body": (
+            "The inverse of distinctive: features the comparison group uses "
+            "heavily that this group barely uses, or doesn't use at all -- "
+            "what this group is conspicuously missing, not what it has."
+        ),
+    },
+    "consistency_score": {
+        "title": "Consistency / purity scores",
+        "body": (
+            "Three related numbers appear around the tables: corpus purity "
+            "(does this book's neighborhood match its own corpus?), cluster "
+            "consistency (do this cluster's other members actually show up "
+            "as neighbors?), and an overall stability check across distance "
+            "views. Exact definitions are in the Research Definitions "
+            "section of the full specification."
+        ),
+    },
+    # one entry per step, plus glossary terms (ward, average-link, tf/tfidf, UMAP, t-SNE, ...)
+}
+ 
+class HelpState(rx.State):
+    open_keys: set[str] = set()
+ 
+    @rx.event
+    def toggle(self, key: str):
+        self.open_keys ^= {key}
+ 
+def help_button(key: str) -&gt; rx.Component:
+    return rx.icon_button("help-circle", on_click=HelpState.toggle(key), size="1", variant="ghost")
+ 
+def help_panel(key: str) -&gt; rx.Component:
+    c = HELP_CONTENT[key]
+    return rx.cond(
+        HelpState.open_keys.contains(key),
+        rx.callout(c["body"], icon="info"),
+    )
+
+The wording above is a real starting draft rather than a placeholder, and can be adjusted to match the terminology used in the underlying research where it differs.
+6. Pipeline dependency graph and caching strategy
+Data (documents + colors)
+  -&gt; Features
+  -&gt; Vectorize (fixed)
+  -&gt; Rescale
+  -&gt; Analysis space (SVD: on/off, sweep or constant)
+       -&gt; Dendrogram (ward/average + metric, cut height)
+       -&gt; Tables / purity & consistency (8.8)
+       -&gt; 3D plot, "svd" mode (reuses this same embedding)
+ 
+Dendrogram clicks and 3D-plot clicks both feed the manual
+cluster tool (8.9) via click-to-select.
+ 
+Visualization only, independent of the above -- never
+touches clustering, tables, or purity/consistency:
+ 
+  Rescale -&gt; UMAP  -&gt; 3D plot, "umap" mode
+  Rescale -&gt; t-SNE -&gt; 3D plot, "tsne" mode
+
+Not every control needs a full recompute. Rough cost per step:
+Step
+Recompute cost
+Triggers on
+Data / Features / Vectorize
+Cheap — DB query and groupby
+selection change
+Rescale
+Cheap
+rescaling mode change
+SVD, constant mode
+Cheap to moderate at book-level corpus scale
+any upstream change
+SVD, sweep mode
+Moderate — fits around twenty models
+any upstream change
+UMAP / t-SNE
+Moderate, often slower than SVD
+upstream change, or its own hyperparameter change
+Dendrogram redraw at a new cut height
+Free — reuses the already-fit Z matrix
+cut-height slider only
+Color changes
+Free — render only
+color picker only
+
+The cache key is a frozen AnalysisConfig — every control that feeds the analysis space, defined precisely in section 7. Caching by its hash means dragging the cut-height slider, changing a book's color, or switching the 3D plot to UMAP or t-SNE never touches this cache at all, since none of those are part of what the config captures. The cache itself needs a bound — a plain dict would grow without limit as more configurations get explored over the app's lifetime:
+from cachetools import TTLCache
+ 
+_analysis_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)   # bounded and self-expiring, not a plain dict
+ 
+def get_or_compute(config: "AnalysisConfig") -&gt; "AnalysisResult":
+    key = hash(config)
+    if key not in _analysis_cache:
+        _analysis_cache[key] = run_pipeline(config)   # vectorize -&gt; rescale -&gt; SVD -&gt; linkage
+    return _analysis_cache[key]
+
+This is process-local: if the app is ever deployed behind more than one worker process or replica, each has its own cache, so a config computed on one worker is a fresh cache miss on another. That's redundant computation, not an incorrect result — each worker's cache is still correctly keyed by hash(config), so a miss just means recomputing rather than returning something wrong. At the scale this app targets (section 10), that redundancy is a minor cost, not a reason to add infrastructure up front. If it is ever deployed behind multiple concurrent workers, swapping this for a Redis-backed cache keyed the same way is a small, contained change rather than a redesign.
+7. Research definitions and formulas
+The pipeline steps in section 8 reference the functions below by name. This section is their single source of truth, so two developers reading the same spec implement the same math.
+One rule that applies throughout: wherever a definition below refers to "the active matrix," it means whatever the Rescaling step (8.4) currently has selected — raw, tf, or tfidf — not a matrix fixed to one mode. The original scripts only ever had TF-IDF, so this choice didn't previously exist; the app makes it explicit and keeps every downstream metric consistent with whatever's on screen.
+Picking the SVD dimensionality (sweep mode)
+global_best  = max(results, key=lambda r: r["cc"])
+plateau_pool = [r for r in results if r["n"] &gt;= plateau_min]
+best = max(plateau_pool, key=lambda r: r["cc"]) if plateau_pool else global_best
+
+results has one entry per swept size, each holding n (component count) and cc (cophenetic correlation, defined next). In words: restrict to sizes at or above plateau_min, take the highest-cc entry among those; if the sweep's range never reaches plateau_min, fall back to the unrestricted best rather than returning nothing.
+Cophenetic correlation, and its limits
+For a candidate embedding X at a given SVD size:
+Z = linkage(X, method="ward", metric="euclidean", optimal_ordering=True)
+cc, _ = cophenet(Z, pdist(X, metric="euclidean"))
+
+Two things worth stating plainly. First, this scoring is always Ward + Euclidean, regardless of which linkage method or distance metric is later selected for the actual dendrogram in 8.7 — dimensionality selection is deliberately independent of that later choice, which keeps it reproducible, but it does mean the chosen size is not guaranteed optimal for, say, an average-linkage/cosine dendrogram. Second, and more fundamentally: this number measures only how well a tree preserves distances in the embedding it was fit on. It is a criterion for choosing SVD dimensionality — nothing more. It is not evidence that the resulting clusters are linguistically meaningful, that corpora separate cleanly, or that any downstream historical/dating conclusion is supported.
+Top, distinctive, and gap features
+All three are computed from the active matrix (see the rule above).
+# top features for a single group
+active_matrix.loc[group].mean().nlargest(n)
+ 
+# distinctive and gap, group_a vs. group_b, from one calculation
+delta = active_matrix.loc[group_a].mean() - active_matrix.loc[group_b].mean()
+distinctive = delta.nlargest(n)   # most characteristic of group_a
+gap         = delta.nsmallest(n)  # most characteristic of group_b -- what group_a lacks by comparison
+
+A single delta yields both directions; computing distinctive and gap as two separate calls with the arguments swapped gives the same numbers, just redundantly.
+Purity and consistency
+Three related but distinct metrics answer three different questions. None of them handle ties specially — nearest neighbors are pandas.Series.nsmallest(k), so ties resolve in whatever order the underlying data happens to sort.
+def get_top_neighbors(book, distances, k):
+    return distances.loc[book].drop(index=book).nsmallest(k).index.tolist()
+ 
+def corpus_purity(book, k=10):
+    """Does this book's neighborhood match its own corpus label?"""
+    own_corpus = document_corpus[book]
+    views = {
+        "active":  get_top_neighbors(book, cosine_distance(active_matrix), k),
+        "svd":     get_top_neighbors(book, cosine_distance(svd_embedding), k),
+        "ward":    get_top_neighbors(book, ward_merge_height, k),
+    }
+    fracs = {name: sum(document_corpus[b] == own_corpus for b in nn) / len(nn) for name, nn in views.items()}
+    hits = sum(f &gt;= 0.5 for f in fracs.values())
+    verdict = "Typical" if hits &gt;= 2 else ("Mixed" if hits == 1 else "Outlier")
+    return {"verdict": verdict, "purity_score": sum(fracs.values()) / len(fracs), "fracs": fracs}
+ 
+def nn_consistency(book, group, k=5):
+    """Do this specific group's other members actually show up as this book's neighbors?"""
+    partners = set(group) - {book}
+    views = {
+        "active": get_top_neighbors(book, cosine_distance(active_matrix), k),
+        "svd":    get_top_neighbors(book, cosine_distance(svd_embedding), k),
+        "ward":   get_top_neighbors(book, ward_merge_height, k),
+    }
+    hits = sum(bool(partners & set(nn)) for nn in views.values())
+    return "Genuine" if hits &gt;= 2 else ("Partial" if hits == 1 else "Artifact")
+ 
+def cross_check_book(book, k=5):
+    """Single global stability number: how much do three views agree on this book's neighbors?"""
+    views = [
+        get_top_neighbors(book, ward_merge_height, k),
+        get_top_neighbors(book, euclidean_distance(svd_embedding), k),
+        get_top_neighbors(book, cosine_distance(svd_embedding), k),
+    ]
+    return len(set(views[0]) & set(views[1]) & set(views[2]))   # out of a maximum of k
+
+corpus_purity is a per-book metric independent of any specific group — it populates the per-book purity column in 8.8. nn_consistency takes a specific group and populates per-cluster/per-manual-selection consistency in 8.8 and 8.9. cross_check_book is not really a per-row value at all; it is reported once, as an aggregate percentage across the whole selected corpus (sum of all books' scores over n_books * k), as a corpus-wide health indicator rather than something shown per book or per group.
+AnalysisConfig
+The immutable configuration that defines the analysis space (everything through the dendrogram), used both as the caching key in section 6 and as what gets serialized for a saved analysis configuration in 8.10.
+@dataclass(frozen=True)
+class AnalysisConfig:
+    selected_document_ids: tuple[int, ...]
+    feature_mode: str                              # "lemma" | "morphology"
+    morph_columns: tuple[str, ...]
+    apply_proper_name_exception: bool
+    rescale_mode: str                               # "raw" | "tf" | "tfidf"
+    svd_enabled: bool
+    svd_mode: str                                   # "constant" | "sweep"
+    svd_n_components: int
+    svd_sweep_range: tuple[int, int, int] | None    # (min, max, step)
+    svd_normalize: bool
+    svd_random_state: int
+    svd_plateau_min: int
+    linkage_method: str                             # "ward" | "average"
+    distance_metric: str                            # "euclidean" | "cosine"
+    cut_height: float
+
+Deliberately excluded: anything that only affects rendering rather than computation — colors, which 3D method or SVD axes are displayed, UMAP/t-SNE settings, table filter text. Those live in their own step-level state (section 8) and never invalidate this cache.
+8. Pipeline steps in detail
+8.1 Data
+Choose which books to include, and set how each is displayed in the visualizations that follow.
+UI — a corpus-to-book tree, with a search box, built dynamically from the documents table. A default color per corpus, plus an optional per-book override for any book that should stand out (the MMT scrolls, for instance, are a natural case for this — see section 5.1; they are five independent, individually selectable documents that happen to share a highlight color, not one merged document). A minimum-entries-per-book threshold, adjustable, controlling which books are eligible to appear at all.
+Backend:
+class DataState(rx.State):
+    corpora: list[str] = []
+    documents_by_corpus: dict[str, list[dict]] = {}   # [{"id": 1, "book": "Genesis"}, ...] per corpus
+    selected_document_ids: set[int] = set()
+    corpus_default_color: dict[str, str] = {"mikra": "#FFD700", "mishna": "#32CD32", "dss": "#4169E1"}
+    document_color_override: dict[int, str] = {}
+    min_entries_per_book: int = 100          # minimum rows required for a document to appear in the tree
+    search_text: str = ""
+ 
+    @rx.event
+    def load_documents(self):
+        with rx.session() as session:
+            counts = session.exec(
+                select(Document.id, Document.book, Document.corpus, func.count())
+                .join(LemmaRow, LemmaRow.document_id == Document.id)
+                .where(LemmaRow.row_type == "NNN")
+                .group_by(Document.id, Document.book, Document.corpus)
+            ).all()
+        kept = [(doc_id, book, corpus) for doc_id, book, corpus, n in counts if n &gt;= self.min_entries_per_book]
+        self.documents_by_corpus = group_by_corpus(kept)
+ 
+    @rx.event
+    def toggle_document(self, document_id: int):
+        self.selected_document_ids ^= {document_id}
+ 
+    @rx.event
+    def set_document_color(self, document_id: int, color: str):
+        self.document_color_override[document_id] = color
+ 
+    def resolved_color(self, document_id: int) -&gt; str:
+        corpus = self.document_corpus_map.get(document_id)
+        return self.document_color_override.get(document_id) or self.corpus_default_color.get(corpus, "#888888")
+
+8.2 Features
+Choose the analytical basis for the rest of the pipeline: lemma or morphology. The two modes are mutually exclusive — see "the core method" in the overview for how each is turned into a per-row signature.
+UI — a mode switch: lemma (fixed to the clean_lemma column, nothing further to choose) or morphology (a multi-select across the eight morphological attribute columns). In morphology mode, one additional toggle: apply the proper-name exception, on by default.
+Backend:
+MISSING_STRINGS = {"UNKNOWN", "nan", "None", "none", ""}
+ 
+class FeatureState(rx.State):
+    mode: str = "lemma"                          # "lemma" | "morphology" -- mutually exclusive
+    morph_columns: list[str] = ["pos", "gender", "number", "person", "tense", "binyan", "state", "subtype"]
+    selected_morph_columns: list[str] = []
+    apply_proper_name_exception: bool = True      # morphology mode only, see below
+ 
+    @property
+    def active_columns(self) -&gt; list[str]:
+        return ["clean_lemma"] if self.mode == "lemma" else self.selected_morph_columns
+ 
+def row_signature(values: dict[str, str], selected_columns: list[str], apply_proper_name_exception: bool) -&gt; str:
+    # proper names get their own atomic signature, ignoring every other attribute,
+    # when the exception is enabled and "subtype" is one of the selected columns
+    if (
+        apply_proper_name_exception
+        and "subtype" in selected_columns
+        and values.get("subtype") == "properName"
+    ):
+        return "subtype=properName"
+    parts = [
+        f"{col}={values[col]}" for col in selected_columns
+        if pd.notna(values.get(col)) and str(values.get(col)) not in MISSING_STRINGS
+    ]
+    return "|".join(parts) if parts else "EMPTY"
+
+row_signature above is the reference definition — the clearest statement of the rule, and what any faster implementation must agree with. It shouldn't be the actual implementation once real data is involved, for reasons covered next.
+8.3 Vectorizing
+An automatic step with no user-facing controls — it turns the selected feature columns into a book x signature count matrix, as described in the overview.
+This step runs once per source row — one word or morpheme occurrence — not once per book. A real corpus is likely hundreds of thousands of such rows, and calling row_signature through df.apply(..., axis=1) at that volume is a real bottleneck: pandas evaluates a Python function one row at a time rather than operating on whole columns at once. The same rule, vectorized:
+def build_signatures_vectorized(df: pd.DataFrame, selected_columns: list[str], apply_proper_name_exception: bool) -&gt; pd.Series:
+    # build "col=value" per selected column across the whole DataFrame at once, dropping
+    # missing/sentinel values, then join the surviving parts per row via stack + groupby
+    # instead of a Python-level loop over rows
+    parts = {}
+    for col in selected_columns:
+        valid = df[col].notna() & ~df[col].astype(str).isin(MISSING_STRINGS)
+        parts[col] = np.where(valid, col + "=" + df[col].astype(str), np.nan)
+    parts_df = pd.DataFrame(parts, index=df.index)
+    signature = parts_df.stack().groupby(level=0).agg("|".join).reindex(df.index).fillna("EMPTY")
+ 
+    if apply_proper_name_exception and "subtype" in selected_columns:
+        is_proper = df["subtype"] == "properName"
+        signature = signature.where(~is_proper, "subtype=properName")
+    return signature
+ 
+def build_count_matrix(df: pd.DataFrame, selected_columns: list[str], apply_proper_name_exception: bool):
+    sig = build_signatures_vectorized(df, selected_columns, apply_proper_name_exception)
+    doc_cat, sig_cat = pd.Categorical(df["document_id"]), pd.Categorical(sig)
+    mat = sp.coo_matrix(
+        (np.ones(len(df)), (doc_cat.codes, sig_cat.codes)),
+        shape=(len(doc_cat.categories), len(sig_cat.categories)),
+    ).tocsr()
+    return mat, list(doc_cat.categories), list(sig_cat.categories)
+
+build_signatures_vectorized must produce exactly the same output as calling row_signature on each row individually — worth a property-style test asserting that directly, so the fast path can never silently drift from the reference rule. If this step is still a bottleneck at real data volumes even after vectorizing, the next escalation is pushing the concatenation into PostgreSQL itself (CASE WHEN plus string concatenation at query time) rather than optimizing the Python side further — worth measuring before assuming that's necessary, though, since the vectorized version above is typically orders of magnitude faster than the row-wise version on its own.
+8.4 Rescaling
+Choose how the raw counts from vectorizing are weighted before anything downstream sees them. This choice is what section 7 calls "the active matrix," and it now determines the top/distinctive/gap feature tables and the purity/consistency calculations too, not just the SVD input.
+UI — a choice of raw, term-frequency (tf), or full TF-IDF (tfidf).
+Backend:
+class RescaleState(rx.State):
+    mode: str = "tfidf"   # "raw" | "tf" | "tfidf"
+ 
+    def apply(self, count_matrix):
+        if self.mode == "raw":
+            return count_matrix
+        return TfidfTransformer(use_idf=(self.mode == "tfidf")).fit_transform(count_matrix)
+
+8.5 SVD
+Optionally compress the (potentially wide, sparse) feature space into a smaller number of composite dimensions, which the dendrogram, feature tables, and the 3D plot's "svd" mode all draw on downstream. The exact dimensionality-selection algorithm and its limitations are defined in section 7 — this step is only the controls and the call site.
+UI — enable or disable SVD entirely; if enabled, a constant size (number input) or a sweep (min/max/step inputs); an L2-normalization toggle; a random-seed field; a plateau threshold, adjustable per analysis. The sweep's variance-explained / cophenetic-correlation chart is shown as an output of this step, and clicking a point on it sets that size as the constant choice.
+Backend:
+class SVDState(rx.State):
+    enabled: bool = True
+    mode: str = "constant"          # "constant" | "sweep"
+    n_components: int = 120
+    sweep_min: int = 10
+    sweep_max: int = 200
+    sweep_step: int = 10
+    normalize: bool = True          # L2-normalize after SVD -- standard LSA practice
+    random_state: int = 42          # fixed seed for reproducibility
+    plateau_min: int = 60           # see section 7, "picking the SVD dimensionality"
+    sweep_results: list[dict] = []  # feeds the variance-explained / cophenetic-correlation chart
+ 
+    @rx.event
+    def run(self, rescaled_matrix):
+        if not self.enabled:
+            self.embedding = rescaled_matrix
+            return
+        sizes = [self.n_components] if self.mode == "constant" else range(self.sweep_min, self.sweep_max + 1, self.sweep_step)
+        results = []
+        for n in sizes:
+            svd = TruncatedSVD(n_components=n, random_state=self.random_state)
+            steps = [svd] + ([Normalizer(copy=False)] if self.normalize else [])
+            X = make_pipeline(*steps).fit_transform(rescaled_matrix)
+            Z = linkage(X, method="ward", metric="euclidean", optimal_ordering=True)
+            cc, _ = cophenet(Z, pdist(X, metric="euclidean"))
+            results.append({"n": n, "var_exp": svd.explained_variance_ratio_.sum(), "cc": cc, "X": X, "Z": Z})
+        self.sweep_results = results
+        self.embedding = pick_best_within_plateau(results, self.plateau_min)["X"]   # section 7
+ 
+    @rx.event
+    def pick_from_chart(self, n_components: int):    # clicking a point on the sweep chart
+        self.mode, self.n_components = "constant", n_components
+        return SVDState.run
+
+Note that self.embedding is set either way — to the SVD output when enabled, to the plain rescaled matrix when not — so everything downstream (dendrogram, tables, the 3D plot's "svd" mode) can read SVDState.embedding without caring whether SVD actually ran.
+8.6 3D plot
+An interactive 3D scatter of the selected books.
+UI — a method selector (SVD, UMAP, or t-SNE). For SVD: three dimension-index pickers, drawn from whichever dimensionality the SVD step produced. For UMAP/t-SNE: no dimension pickers — the fit runs directly at three components, since neither method produces an ordered, variance-ranked set of axes the way SVD does, so picking "dimensions 2, 3, 4" out of a higher-dimensional fit would not mean anything stable. Hyperparameters are exposed directly: n_neighbors and min_dist for UMAP, perplexity for t-SNE. A color-by toggle switches between identity color and cluster color (section 5.1). A random-seed field matters more here than for SVD, since UMAP and especially t-SNE are stochastic and will not reproduce the same layout across runs otherwise. As noted in the overview, UMAP and t-SNE are visualization-only: switching to either never touches the dendrogram, the tables, or the analysis cache.
+Backend:
+def extract_clicked_document_id(point_data: dict) -&gt; int:
+    # the one place that knows the rx.plotly click-event payload shape --
+    # both this step and the dendrogram (8.7) call through here rather than
+    # each parsing the payload independently, so a schema change across
+    # Reflex versions is a one-line fix instead of two
+    return point_data["points"][0]["customdata"]
+ 
+class PlotState(rx.State):
+    method: str = "svd"           # "svd" | "umap" | "tsne"
+    svd_dims: tuple[int, int, int] = (0, 1, 2)
+    color_by: str = "identity"    # "identity" | "cluster" -- both available, user toggles
+    umap_n_neighbors: int = 15
+    umap_min_dist: float = 0.1
+    tsne_perplexity: float = 30.0
+    random_state: int = 42
+ 
+    @rx.event
+    def recompute(self):
+        if self.method == "svd":
+            X3 = SVDState.embedding[:, list(self.svd_dims)]    # reuses the analysis-space embedding, so the
+                                                                  # plot stays consistent with the dendrogram
+        elif self.method == "umap":
+            X3 = umap.UMAP(n_components=3, n_neighbors=self.umap_n_neighbors,
+                            min_dist=self.umap_min_dist, random_state=self.random_state).fit_transform(RescaleState.embedding)
+        else:
+            X3 = TSNE(n_components=3, perplexity=self.tsne_perplexity,
+                       random_state=self.random_state).fit_transform(RescaleState.embedding)
+        colors = cluster_colors() if self.color_by == "cluster" else identity_colors()
+        self.fig = make_3d_scatter(X3, documents, colors)
+ 
+    @rx.event
+    def on_point_click(self, point_data):
+        # clicking a point adds or removes that document from the manual cluster selection
+        return ManualClusterState.toggle_document(extract_clicked_document_id(point_data))
+
+Clicking a point adds it to, or removes it from, the manual cluster tool's current selection — see section 8.9.
+8.7 Dendrogram
+A hierarchical clustering tree over the same books, built from the same analysis-space embedding as the tables below (SVDState.embedding).
+UI — linkage method (ward or average — see section 5.2 for which distance metrics are valid with each) and a cut-height slider spanning the linkage distances, redrawing live as it moves; live cluster count and per-cluster sizes shown alongside the slider. Leaves are colored by identity color; branches are colored by cluster. Worth remembering while reading this tree: the SVD dimensionality it's built on was chosen using ward/euclidean scoring regardless of the linkage method selected here (section 7) — switching to average/cosine changes how books are grouped, not how many SVD dimensions they were grouped in.
+Backend:
+class DendrogramState(rx.State):
+    linkage_method: str = "ward"        # "ward" | "average"
+    distance_metric: str = "euclidean"  # locked to euclidean whenever linkage_method == "ward"
+    cut_height: float = 0.0
+    cluster_of: dict[int, int] = {}     # document_id -&gt; cluster id
+ 
+    @rx.event
+    def recompute(self):
+        metric = "euclidean" if self.linkage_method == "ward" else self.distance_metric
+        Z = linkage(SVDState.embedding, method=self.linkage_method, metric=metric, optimal_ordering=True)
+        self.Z = Z
+        ddata = dendrogram(Z, labels=document_ids, no_plot=True)     # SciPy's own layout math, not re-derived
+        self.fig = make_dendrogram_plotly_figure(                     # go.Scatter lines from icoord/dcoord, plus a
+            ddata["icoord"], ddata["dcoord"], ddata["ivl"],            # clickable marker trace at each leaf
+            leaf_colors=identity_colors(), cut_height=self.cut_height,
+        )
+        self.recolor(self.cut_height)
+ 
+    @rx.event
+    def recolor(self, cut_height: float):
+        self.cut_height = cut_height
+        self.cluster_of = dict(zip(document_ids, fcluster(self.Z, t=cut_height, criterion="distance")))
+ 
+    @rx.event
+    def on_leaf_click(self, point_data):
+        return ManualClusterState.toggle_document(extract_clicked_document_id(point_data))
+
+Clicking a leaf behaves the same as clicking a point on the 3D plot: it adds or removes that book from the manual cluster tool's selection.
+8.8 Data tables
+Top, distinctive, and gap feature tables (exact definitions in section 7) for any corpus, cluster, or individual book, with a search/filter box, plus the purity and consistency metrics from section 7. These reproduce the same table definitions the original Excel workbook already computed, now interactive rather than static.
+UI — a scope selector (corpus / cluster / book); a filter box; per-book purity (corpus_purity) shown in the book-level view, per-cluster consistency (nn_consistency) shown in the cluster-level view, and the corpus-wide cross_check_book aggregate shown once, above the tables, rather than as a per-row value.
+Backend:
+class TableState(rx.State):
+    scope: str = "corpus"      # "corpus" | "cluster" | "book"
+    scope_value: str = ""
+    filter_text: str = ""
+    rows: list[dict] = []
+    purity_by_book: dict[int, dict] = {}        # corpus_purity() per book, book-level view
+    consistency_by_cluster: dict[int, str] = {}  # nn_consistency() per cluster, cluster-level view
+    corpus_wide_stability: float = 0.0           # cross_check_book(), shown once above the tables
+ 
+    @rx.event
+    def recompute(self):
+        group = resolve_group(self.scope, self.scope_value, DendrogramState.cluster_of)
+        rest = all_selected_documents() - set(group)
+        top = shared_features(group, n=TOP_N)              # section 7
+        distinctive, gap = diff_features(group, rest, n=TOP_N)  # section 7, one call yields both
+        self.rows = build_phase_dataframes(top, distinctive, gap)
+        if self.scope == "book":
+            self.purity_by_book = {b: corpus_purity(b) for b in group}
+        elif self.scope == "cluster":
+            self.consistency_by_cluster = {cid: nn_consistency_for_cluster(cid, group) for cid in {DendrogramState.cluster_of[b] for b in group}}
+
+8.9 Manual cluster selection
+Pick any set of books by hand — by clicking them on the 3D plot or the dendrogram — and run the same top/distinctive/gap comparison against a chosen reference group, independent of whatever the automatic clustering produced.
+UI — a "start selecting" toggle; clicking books on the 3D plot or dendrogram adds or removes them from the in-progress selection; a "done" button finalizes the selection and runs the comparison; a comparison-scope selector offering three options — a specific corpus, all other currently selected books, or an existing auto-detected cluster; a name field and save button to persist the group for later reference.
+Backend:
+class ManualClusterState(rx.State):
+    picking: bool = False
+    picked_document_ids: set[int] = set()
+    comparison_scope_type: str = "corpus"     # "corpus" | "all_other_selected" | "existing_cluster"
+    comparison_scope_value: str = ""
+    saved_name: str = ""
+ 
+    @rx.event
+    def start_picking(self):
+        self.picking, self.picked_document_ids = True, set()
+ 
+    @rx.event
+    def toggle_document(self, document_id: int):
+        if self.picking:
+            self.picked_document_ids ^= {document_id}
+ 
+    @rx.event
+    def done_picking(self):
+        self.picking = False
+        comparison = resolve_comparison(
+            self.comparison_scope_type, self.comparison_scope_value,
+            self.picked_document_ids, DendrogramState.cluster_of,
+        )
+        self.top = shared_features(self.picked_document_ids, n=TOP_N)
+        self.distinctive, self.gap = diff_features(self.picked_document_ids, comparison, n=TOP_N)
+        self.consistency = nn_consistency_for_group(self.picked_document_ids)
+ 
+    @rx.event
+    def save(self):
+        with rx.session() as session:
+            session.add(ManualCluster(
+                owner_user_id=AuthState.current_user_id, name=self.saved_name,
+                document_ids=list(self.picked_document_ids),
+                comparison_scope_type=self.comparison_scope_type,
+                comparison_scope_value=self.comparison_scope_value,
+            ))
+            session.commit()
+        log_activity(AuthState.current_user_id, "manual_cluster_saved", {"name": self.saved_name})
+
+8.10 Saved analysis configurations
+Beyond saving a manual cluster (8.9), the full current pipeline configuration — every control from Data through Dendrogram, defined precisely as AnalysisConfig in section 7 — can be saved and reloaded as a named preset. This makes a specific view reproducible and shareable across sessions, and is exactly what the caching layer in section 6 already keys on internally; saving one is just persisting that same key under a name.
+UI — a "save this configuration" action, prompting for a name; a "load a saved configuration" picker restoring every control to its saved values and triggering a full recompute.
+Backend:
+class SavedConfigState(rx.State):
+    saved_configs: list[dict] = []     # id, name, created_at -- for the picker list
+ 
+    @rx.event
+    def save(self, name: str, config: "AnalysisConfig"):
+        with rx.session() as session:
+            session.add(SavedAnalysisConfig(
+                owner_user_id=AuthState.current_user_id, name=name,
+                config=asdict(config),
+            ))
+            session.commit()
+        log_activity(AuthState.current_user_id, "analysis_config_saved", {"name": name})
+ 
+    @rx.event
+    def load(self, saved_config_id: int):
+        with rx.session() as session:
+            row = session.get(SavedAnalysisConfig, saved_config_id)
+        config = AnalysisConfig(**row.config)
+        # push every field back onto DataState / FeatureState / RescaleState / SVDState /
+        # DendrogramState, then run the same recompute chain a manual parameter change would
+        return apply_config(config)
+
+8.11 Export
+A single "export this view" action available on every table and plot panel, rather than a separate export wizard.
+UI — per-panel export controls: CSV, Excel, or PDF for tables; PNG or PDF for plots.
+Backend:
+class ExportState(rx.State):
+    @rx.event
+    def export_table(self, rows: list[dict], fmt: str):     # "csv" | "excel" | "pdf"
+        path = {"csv": write_csv, "excel": write_excel, "pdf": write_pdf_table}[fmt](rows)
+        log_activity(AuthState.current_user_id, "export_table", {"fmt": fmt})
+        return rx.download(rx.get_upload_url(path))
+ 
+    @rx.event
+    def export_plot(self, fig, fmt: str):                    # "png" | "pdf"
+        path = write_plot_png(fig) if fmt == "png" else write_plot_pdf(fig)
+        log_activity(AuthState.current_user_id, "export_plot", {"fmt": fmt})
+        return rx.download(rx.get_upload_url(path))
+
+write_pdf_table has no precedent in either source script — it is new code either way, regardless of which PDF library is chosen. A natural extension beyond per-panel export: a single "export full report" action that reuses the original scripts' PDF/Excel report-generation code to produce one comprehensive downloadable bundle.
+9. Authentication and activity logging
+from reflex_google_auth import require_google_login, GoogleAuthState
+ 
+class AuthState(GoogleAuthState):
+    current_user_id: int = 0
+ 
+    @rx.event
+    def on_login(self):
+        with rx.session() as session:
+            user = session.exec(select(User).where(User.google_sub == self.tokeninfo["sub"])).first()
+            if user is None:
+                user = User(google_sub=self.tokeninfo["sub"], email=self.tokeninfo["email"],
+                            name=self.tokeninfo.get("name"))
+                session.add(user)
+            user.last_login_at = datetime.utcnow()
+            session.commit()
+            self.current_user_id = user.id
+        log_activity(self.current_user_id, "login")
+ 
+def log_activity(user_id: int, action: str, details: dict | None = None):
+    with rx.session() as session:
+        session.add(ActivityLog(user_id=user_id, action=action, details=details or {}, timestamp=datetime.utcnow()))
+        session.commit()
+ 
+@require_google_login
+def index() -&gt; rx.Component:
+    ...
+
+Sign-in is open to any Google account — on_login never blocks a sign-in, and there is no allowlist to check against.
+10. Non-functional requirements
+Reproducibility — fix random seeds by default (SVD, UMAP, and t-SNE all accept random_state) so results are citable and repeatable.
+Performance — the caching plan in section 6 should keep the interface feeling responsive at book-level corpus scale (tens to a few hundred documents); revisit only if the real corpus turns out substantially larger than that.
+Hebrew and right-to-left text — should render natively in the browser, including inside AG Grid, unlike matplotlib; the reshaping workarounds the original scripts needed for Hebrew labels are very likely unnecessary once rendering moves to HTML/SVG, though worth a visual check once real data is in the grid.
+Security — per Reflex's own authentication guidance: keep tokens in backend-only state, re-validate the session on every event handler touching private data (not only at the login redirect), and treat anything statically rendered in the frontend as public regardless of a login wall — only state-sourced data is genuinely protected.
+11. Suggested build order
+Postgres schema (including the documents table and surrogate ids), Google login, and the activity-log skeleton, wired to Data, Features, Vectorize, Rescale, SVD (constant mode only), and the 3D plot (SVD only). One complete, authenticated core loop.
+SVD sweep mode (with the clickable chart), UMAP and t-SNE (with their hyperparameters exposed), and the Plotly-based dendrogram (ward/average, metric choice, live cut-height).
+Click-to-select on the 3D plot and dendrogram leaves; the manual cluster tool and saved analysis configurations, including "done" and both save flows — by this point every field AnalysisConfig needs to serialize actually exists.
+Data tables (corpus/cluster/book), including the purity, consistency, and corpus-wide stability metrics from section 7.
+The in-app help system, across all steps.
+Export — CSV/Excel first, PDF last, for both tables and plots, since PDF has no existing code to build on either way.
+Authentication and the database move to the first phase deliberately: retrofitting login onto an application that was not built with it in mind from the start is considerably more disruptive than building it in from day one.
+12. References
+https://reflex.dev/docs/library/graphing/other-charts/plotly/
+https://reflex.dev/docs/authentication/authentication-overview/
+https://reflex.dev/blog/implementing-sign-in-with-google/
+https://github.com/masenf/reflex-google-auth
+https://reflex.dev/docs/database/overview/
