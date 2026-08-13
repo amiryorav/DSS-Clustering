@@ -1,0 +1,16 @@
+# Reflex Cloud deployment for Hebrew Stylometry Explorer
+name: dss-clustering
+description: Interactive Hebrew stylometry clustering (lemma + morphology)
+projectname: Default Project
+# Tokyo — same region family as the Supabase Postgres pooler (ap-northeast-1).
+regions:
+  nrt: 1
+vmtype: c1m1
+hostname: dss-clustering
+envfile: .env
+packages:
+  # Kaleido / Plotly static export needs Chromium tooling on Linux VMs.
+  - chromium
+  - fonts-noto
+  - fonts-noto-cjk
+strategy: immediate

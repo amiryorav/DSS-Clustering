@@ -11,3 +11,6 @@ reflex.log
 *.log
 .DS_Store
 Thumbs.db
+master_dataset.pkl
+deploy*.log
+
