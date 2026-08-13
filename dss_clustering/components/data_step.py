@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.help import help_panel, step_header
 from dss_clustering.states.data_state import DataState
 
 
@@ -54,10 +55,12 @@ def _corpus_section(corpus: str) -> rx.Component:
 def data_step() -> rx.Component:
     """Data step panel: search, threshold, and book selection."""
     return rx.vstack(
-        rx.heading("1. Data", size="6"),
+        step_header("1. Data", "data"),
+        help_panel("data"),
         rx.text(
             "Choose which books and scrolls to include. "
-            "Only valid rows (row_type = NNN) count toward the minimum-entries filter. "
+            "Only NNN rows count; lemma mode also excludes blank clean_lemma rows, "
+            "matching the original scripts' minimum-entries filters. "
             "Identity colors are set later on the 3D plot.",
             color="gray",
         ),

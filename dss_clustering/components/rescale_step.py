@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.help import help_button, help_panel, step_header
 from dss_clustering.states.rescale_state import RescaleState
 
 
 def rescale_step() -> rx.Component:
     """Rescale: raw / TF / TF-IDF weighting of the count matrix."""
     return rx.vstack(
-        rx.heading("4. Rescale", size="6"),
+        step_header("4. Rescale", "rescale"),
+        help_panel("rescale"),
         rx.text(
             "Choose how raw signature counts are weighted. "
             "This becomes the active matrix for SVD, tables, and metrics.",
@@ -23,6 +25,13 @@ def rescale_step() -> rx.Component:
             value=RescaleState.mode,
             on_change=RescaleState.set_mode,
         ),
+        rx.hstack(
+            help_button("tf_tfidf"),
+            rx.text("What TF / TF-IDF mean", size="1", color="gray"),
+            spacing="1",
+            align="center",
+        ),
+        help_panel("tf_tfidf"),
         rx.hstack(
             rx.button(
                 "Apply",

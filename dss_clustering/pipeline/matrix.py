@@ -33,6 +33,14 @@ def build_count_matrix(
         raise ValueError("DataFrame must include document_id")
 
     filtered = filter_experiment_rows(df, ignore_proper_names=ignore_proper_names)
+    if selected_columns == ["clean_lemma"]:
+        # Match lemma.py Cell 2 and the SQL aggregation path: blank / missing
+        # lemmas are not analytical features and must not become "EMPTY".
+        lemma = filtered["clean_lemma"]
+        cleaned = lemma.astype("string").str.strip()
+        filtered = filtered.loc[
+            lemma.notna() & cleaned.ne("") & cleaned.str.lower().ne("nan")
+        ].copy()
     n_source = len(filtered)
     if n_source == 0:
         doc_ids = list(document_ids) if document_ids else []

@@ -5,6 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.busy import busy_banner
+from dss_clustering.components.help import help_panel, step_header
+from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.vectorize_state import VectorizeState
 
 
@@ -21,7 +23,8 @@ def _stat_chip(label: str, value) -> rx.Component:
 def vectorize_step() -> rx.Component:
     """Vectorize: automatic count-matrix build with status only."""
     return rx.vstack(
-        rx.heading("3. Vectorize", size="6"),
+        step_header("3. Vectorize", "vectorize"),
+        help_panel("vectorize"),
         rx.text(
             "Build the book × signature count matrix from the selected books "
             "and feature columns. This step has no parameters.",
@@ -44,11 +47,22 @@ def vectorize_step() -> rx.Component:
                     rx.badge("up to date", color_scheme="green"),
                 ),
             ),
+            rx.cond(
+                VectorizeState.has_matrix,
+                rx.button(
+                    "Export raw matrix CSV",
+                    on_click=ExportState.export_count_matrix,
+                    size="2",
+                    variant="soft",
+                    disabled=VectorizeState.is_stale,
+                ),
+            ),
             spacing="3",
             align="center",
             flex_wrap="wrap",
         ),
         rx.text(VectorizeState.status_message, size="2", color="gray"),
+        rx.text(ExportState.status_message, size="2", color="gray"),
         rx.cond(
             VectorizeState.has_matrix,
             rx.vstack(

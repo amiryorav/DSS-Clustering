@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.help import help_panel, step_header
 from dss_clustering.states.feature_state import FeatureState
 
 
@@ -80,8 +81,9 @@ def _ignore_proper_names_toggle() -> rx.Component:
         rx.vstack(
             rx.text("Ignore proper-name", weight="medium", size="2"),
             rx.text(
-                "When checked, every row with subtype=properName is dropped "
-                "from the experiment.",
+                "When checked, subtype=properName rows are dropped. "
+                "When unchecked, they are kept as the atomic signature "
+                "subtype=properName (other morph attributes ignored).",
                 size="1",
                 color="gray",
             ),
@@ -97,7 +99,8 @@ def _ignore_proper_names_toggle() -> rx.Component:
 def features_step() -> rx.Component:
     """Features step: lemma vs morphology + ignore proper-name."""
     return rx.vstack(
-        rx.heading("2. Features", size="6"),
+        step_header("2. Features", "features"),
+        help_panel("features"),
         rx.text(
             "Choose the analytical basis for the rest of the pipeline. "
             "Lemma and morphology modes are mutually exclusive.",

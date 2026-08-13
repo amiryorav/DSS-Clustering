@@ -1,9 +1,9 @@
 """Signature construction for lemma / morphology feature modes (spec §8.2–8.3).
 
-Proper-name handling (project rule, superseding the original collapse-to-
-``subtype=properName`` exception): when ``ignore_proper_names`` is set, every
-row with ``subtype == "properName"`` is dropped from the experiment entirely
-before signatures / counts are built.
+Proper-name rows (``subtype == "properName"``) collapse to the atomic signature
+``subtype=properName``, matching the original morphological notebook. When
+``ignore_proper_names`` is set, those rows are dropped from the experiment
+entirely before signatures / counts are built.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ MORPH_COLUMNS = (
 )
 
 PROPER_NAME_SUBTYPE = "properName"
+PROPER_NAME_SIGNATURE = f"subtype={PROPER_NAME_SUBTYPE}"
 
 
 def filter_experiment_rows(
@@ -44,6 +45,10 @@ def filter_experiment_rows(
     return df.loc[df["subtype"] != PROPER_NAME_SUBTYPE].copy()
 
 
+def _is_lemma_only(selected_columns: list[str]) -> bool:
+    return list(selected_columns) == ["clean_lemma"]
+
+
 def row_signature(
     values: dict[str, Any],
     selected_columns: list[str],
@@ -51,8 +56,15 @@ def row_signature(
     """Reference per-row signature rule.
 
     Faster paths (vectorized / SQL) must match this exactly. Proper-name rows
-    must already have been filtered out when ignore-proper-name is on.
+    must already have been filtered out when ignore-proper-name is on; when
+    kept, morphology signatures collapse to ``subtype=properName``.
     """
+    if (
+        not _is_lemma_only(selected_columns)
+        and values.get("subtype") == PROPER_NAME_SUBTYPE
+    ):
+        return PROPER_NAME_SIGNATURE
+
     parts = [
         f"{col}={values[col]}"
         for col in selected_columns
@@ -78,7 +90,7 @@ def build_signatures_vectorized(
     parts_df = pd.DataFrame(parts, index=df.index)
     # Drop missing cells before join so EMPTY rows and partial morphs match
     # row_signature (pandas 3 stack keeps NaNs when future_stack=True).
-    return (
+    signatures = (
         parts_df.stack(future_stack=True)
         .dropna()
         .groupby(level=0)
@@ -86,3 +98,9 @@ def build_signatures_vectorized(
         .reindex(df.index)
         .fillna("EMPTY")
     )
+
+    if not _is_lemma_only(selected_columns) and "subtype" in df.columns:
+        is_proper = df["subtype"] == PROPER_NAME_SUBTYPE
+        signatures = signatures.where(~is_proper, PROPER_NAME_SIGNATURE)
+
+    return signatures

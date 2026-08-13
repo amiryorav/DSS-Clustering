@@ -1,14 +1,26 @@
-"""UI for the 3D plot pipeline step (Phase 1: SVD mode)."""
+"""UI for the 3D plot pipeline step (spec §8.6)."""
 
 from __future__ import annotations
 
 import reflex as rx
 
 from dss_clustering.colors import COLOR_PALETTE
-from dss_clustering.states.plot_state import LABEL_HIDDEN, LABEL_SHORT, PlotState
+from dss_clustering.components.export_bar import plot_export_bar
+from dss_clustering.components.help import help_button, help_panel, step_header
+from dss_clustering.states.export_state import ExportState
+from dss_clustering.states.plot_state import (
+    COLOR_CLUSTER,
+    COLOR_IDENTITY,
+    LABEL_HIDDEN,
+    LABEL_SHORT,
+    METHOD_SVD,
+    METHOD_TSNE,
+    METHOD_UMAP,
+    PlotState,
+)
 
 
-def _dim_input(label: str, value, on_change) -> rx.Component:
+def _dim_input(label: str, value, on_change, disabled=False) -> rx.Component:
     return rx.hstack(
         rx.text(label, size="2", white_space="nowrap"),
         rx.input(
@@ -17,6 +29,21 @@ def _dim_input(label: str, value, on_change) -> rx.Component:
             on_change=on_change,
             width="4.5rem",
             min=0,
+            disabled=disabled,
+        ),
+        spacing="2",
+        align="center",
+    )
+
+
+def _num(label: str, value, on_change) -> rx.Component:
+    return rx.hstack(
+        rx.text(label, size="2", white_space="nowrap"),
+        rx.input(
+            type="number",
+            value=value.to(str),
+            on_change=on_change,
+            width="5rem",
         ),
         spacing="2",
         align="center",
@@ -130,20 +157,41 @@ def _book_row(book) -> rx.Component:
 
 
 def plot_step() -> rx.Component:
-    """3D SVD scatter with labels, per-book visibility, and color redraw."""
+    """3D scatter with SVD / UMAP / t-SNE, labels, and book controls."""
     return rx.vstack(
-        rx.heading("6. 3D plot", size="6"),
+        step_header("6. 3D plot", "plot"),
+        help_panel("plot"),
         rx.text(
-            "Interactive scatter of selected books in analysis space. "
-            "Label and book visibility/color changes redraw only — "
-            "they do not re-run SVD.",
+            "SVD uses the analysis embedding (feeds clustering). "
+            "UMAP and t-SNE are visualization-only — they do not change the dendrogram. "
+            "Cluster coloring follows the current dendrogram cut. "
+            "Click any point to start a new manual book group, then keep clicking to toggle books.",
             color="gray",
         ),
         rx.hstack(
-            rx.badge("Method: SVD", variant="soft"),
-            _dim_input("X dim", PlotState.dim_x, PlotState.set_dim_x),
-            _dim_input("Y dim", PlotState.dim_y, PlotState.set_dim_y),
-            _dim_input("Z dim", PlotState.dim_z, PlotState.set_dim_z),
+            help_button("umap"),
+            rx.text("UMAP", size="1", color="gray"),
+            help_button("tsne"),
+            rx.text("t-SNE", size="1", color="gray"),
+            spacing="2",
+            align="center",
+        ),
+        help_panel("umap"),
+        help_panel("tsne"),
+        rx.hstack(
+            rx.segmented_control.root(
+                rx.segmented_control.item("SVD", value=METHOD_SVD),
+                rx.segmented_control.item("UMAP", value=METHOD_UMAP),
+                rx.segmented_control.item("t-SNE", value=METHOD_TSNE),
+                value=PlotState.method,
+                on_change=PlotState.set_method,
+            ),
+            rx.segmented_control.root(
+                rx.segmented_control.item("Identity", value=COLOR_IDENTITY),
+                rx.segmented_control.item("Cluster", value=COLOR_CLUSTER),
+                value=PlotState.color_mode,
+                on_change=PlotState.set_color_mode,
+            ),
             rx.segmented_control.root(
                 rx.segmented_control.item("Short labels", value=LABEL_SHORT),
                 rx.segmented_control.item("Hide labels", value=LABEL_HIDDEN),
@@ -155,22 +203,79 @@ def plot_step() -> rx.Component:
                 on_click=PlotState.recompute,
                 size="2",
                 variant="soft",
+                loading=PlotState.is_fitting_viz,
             ),
             spacing="4",
             flex_wrap="wrap",
             align="center",
             width="100%",
         ),
+        rx.cond(
+            PlotState.is_svd_method,
+            rx.hstack(
+                _dim_input("X dim", PlotState.dim_x, PlotState.set_dim_x),
+                _dim_input("Y dim", PlotState.dim_y, PlotState.set_dim_y),
+                _dim_input("Z dim", PlotState.dim_z, PlotState.set_dim_z),
+                spacing="4",
+                flex_wrap="wrap",
+                align="center",
+            ),
+        ),
+        rx.cond(
+            PlotState.is_umap_method,
+            rx.hstack(
+                _num("n_neighbors", PlotState.umap_n_neighbors, PlotState.set_umap_n_neighbors),
+                _num("min_dist", PlotState.umap_min_dist, PlotState.set_umap_min_dist),
+                rx.button(
+                    "Fit UMAP",
+                    on_click=PlotState.refit_viz,
+                    size="2",
+                    loading=PlotState.is_fitting_viz,
+                ),
+                spacing="4",
+                flex_wrap="wrap",
+                align="center",
+            ),
+        ),
+        rx.cond(
+            PlotState.is_tsne_method,
+            rx.hstack(
+                _num(
+                    "perplexity",
+                    PlotState.tsne_perplexity,
+                    PlotState.set_tsne_perplexity,
+                ),
+                rx.button(
+                    "Fit t-SNE",
+                    on_click=PlotState.refit_viz,
+                    size="2",
+                    loading=PlotState.is_fitting_viz,
+                ),
+                spacing="4",
+                flex_wrap="wrap",
+                align="center",
+            ),
+        ),
         rx.text(PlotState.status_message, size="2", color="gray"),
+        rx.text(ExportState.status_message, size="2", color="gray"),
         rx.cond(
             PlotState.has_figure,
-            rx.box(
-                rx.plotly(data=PlotState.figure),
+            rx.vstack(
+                plot_export_bar(kind="plot"),
+                rx.box(
+                    rx.plotly(
+                        data=PlotState.figure,
+                        on_click=PlotState.on_point_click,
+                    ),
+                    width="100%",
+                    border="1px solid var(--gray-a6)",
+                    border_radius="md",
+                    padding="0.5rem",
+                    overflow="hidden",
+                ),
                 width="100%",
-                border="1px solid var(--gray-a6)",
-                border_radius="md",
-                padding="0.5rem",
-                overflow="hidden",
+                spacing="2",
+                align="start",
             ),
         ),
         rx.cond(

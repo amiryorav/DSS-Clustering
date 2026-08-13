@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import reflex as rx
+from plotly.graph_objects import Figure
 
+from dss_clustering.pipeline.plotting import make_sweep_chart
 from dss_clustering.pipeline.runtime import (
     EmbeddingBundle,
     clear_embedding,
@@ -33,7 +35,8 @@ class SVDState(rx.State):
     sweep_min: int = 10
     sweep_max: int = 200
     sweep_step: int = 10
-    plateau_min: int = 60
+    # lemma.py default; FeatureState switches this to 50 in morphology mode.
+    plateau_min: int = 70
     normalize: bool = True
     # Fixed internally for reproducibility — not exposed in the UI.
     random_state: int = DEFAULT_RANDOM_STATE
@@ -48,6 +51,8 @@ class SVDState(rx.State):
     status_message: str = "Build and rescale a matrix, then run SVD."
     progress_message: str = ""
     sweep_results: list[dict] = []
+    sweep_figure: Figure = Figure()
+    has_sweep_figure: bool = False
 
     def _token(self) -> str:
         return self.router.session.client_token
@@ -105,6 +110,56 @@ class SVDState(rx.State):
     @rx.var(cache=True)
     def is_sweep(self) -> bool:
         return self.mode == MODE_SWEEP
+
+    def _update_sweep_figure(self):
+        if self.sweep_results:
+            self.sweep_figure = make_sweep_chart(list(self.sweep_results))
+            self.has_sweep_figure = True
+        else:
+            self.sweep_figure = Figure()
+            self.has_sweep_figure = False
+
+    @rx.event
+    def select_sweep_dims(self, n: int):
+        """Pick a sweep size as the new constant n_components (user re-runs SVD)."""
+        try:
+            dims = int(n)
+        except (TypeError, ValueError):
+            return
+        if dims < 1:
+            return
+        self.n_components = dims
+        self.mode = MODE_CONSTANT
+        # Mark selected row in the table/chart for feedback
+        self.sweep_results = [
+            {**row, "selected": int(row["n"]) == dims} for row in self.sweep_results
+        ]
+        self._update_sweep_figure()
+        self.status_message = (
+            f"Selected {dims} dims from the sweep chart — "
+            f"switched to Constant. Click Run SVD to apply."
+        )
+
+    @rx.event
+    def on_sweep_click(self, event_data):
+        """Plotly click: use the clicked point's x (dims) as constant size."""
+        try:
+            points = event_data.get("points") if isinstance(event_data, dict) else None
+            if not points:
+                # Reflex may pass a typed object
+                points = getattr(event_data, "points", None)
+            if not points:
+                return
+            point = points[0]
+            if isinstance(point, dict):
+                x = point.get("x")
+            else:
+                x = getattr(point, "x", None)
+            if x is None:
+                return
+            return SVDState.select_sweep_dims(int(round(float(x))))
+        except Exception:  # noqa: BLE001
+            return
 
     @rx.event(background=True)
     async def run(self):
@@ -210,6 +265,7 @@ class SVDState(rx.State):
                 self.density_label = f"{self.density_pct:.2f}%"
                 self.n_documents = int(embedding.shape[0])
                 self.sweep_results = sweep_rows
+                self._update_sweep_figure()
 
                 if not enabled:
                     self.status_message = (
@@ -236,9 +292,10 @@ class SVDState(rx.State):
 
                 self.progress_message = ""
                 self.is_running = False
+                from dss_clustering.states.dendrogram_state import DendrogramState
                 from dss_clustering.states.plot_state import PlotState
 
-                return PlotState.recompute
+                return [PlotState.recompute, DendrogramState.refit]
         except Exception as exc:  # noqa: BLE001
             async with self:
                 clear_embedding(token)
@@ -249,6 +306,8 @@ class SVDState(rx.State):
                 self.density_label = "—"
                 self.n_documents = 0
                 self.sweep_results = []
+                self.sweep_figure = Figure()
+                self.has_sweep_figure = False
                 self.status_message = f"SVD failed: {exc}"
                 self.progress_message = ""
                 self.is_running = False

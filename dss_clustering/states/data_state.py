@@ -100,13 +100,20 @@ class DataState(rx.State):
         self.selected_document_ids = []
 
     @rx.event
-    def load_documents(self):
-        """Load documents that have enough valid (NNN) lemma rows."""
+    async def load_documents(self):
+        """Load documents eligible under the current original-script rules."""
         self.is_loading = True
         self.status_message = "Loading documents..."
         try:
+            # lemma.py applies the >=100 threshold after removing blank lemmas;
+            # morphological.py applies it to all NNN rows.
+            from dss_clustering.states.feature_state import FeatureState, MODE_LEMMA
+
+            features = await self.get_state(FeatureState)
+            lemma_mode = features.mode == MODE_LEMMA
+
             with rx.session() as session:
-                rows = session.exec(
+                statement = (
                     select(
                         Document.id,
                         Document.book,
@@ -116,13 +123,21 @@ class DataState(rx.State):
                     )
                     .join(LemmaRow, LemmaRow.document_id == Document.id)
                     .where(LemmaRow.row_type == VALID_ROW_TYPE)
-                    .group_by(
+                )
+                if lemma_mode:
+                    cleaned_lemma = func.trim(LemmaRow.clean_lemma)
+                    statement = (
+                        statement.where(LemmaRow.clean_lemma.is_not(None))
+                        .where(cleaned_lemma != "")
+                        .where(func.lower(cleaned_lemma) != "nan")
+                    )
+                rows = session.exec(
+                    statement.group_by(
                         Document.id,
                         Document.book,
                         Document.corpus,
                         Document.display_name,
-                    )
-                    .order_by(Document.corpus, Document.book)
+                    ).order_by(Document.corpus, Document.book)
                 ).all()
 
             by_corpus: dict[str, list[dict]] = defaultdict(list)
@@ -166,7 +181,8 @@ class DataState(rx.State):
             total = sum(len(v) for v in by_corpus.values())
             self.status_message = (
                 f"Loaded {total} books/scrolls "
-                f"(min valid rows >= {self.min_entries_per_book})."
+                f"(min {'non-empty lemma' if lemma_mode else 'valid'} rows "
+                f">= {self.min_entries_per_book})."
             )
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
             self.status_message = f"Failed to load documents: {exc}"

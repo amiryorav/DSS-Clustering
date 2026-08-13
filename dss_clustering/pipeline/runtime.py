@@ -55,14 +55,40 @@ class EmbeddingBundle:
     fingerprint: str
 
 
+@dataclass
+class DendrogramBundle:
+    """Server-side linkage tree for the dendrogram step."""
+
+    Z: np.ndarray
+    document_ids: list[int]
+    linkage_method: str
+    distance_metric: str
+    fingerprint: str
+
+
+@dataclass
+class VizEmbeddingBundle:
+    """Visualization-only 2D/3D coords (UMAP / t-SNE); never feeds clustering."""
+
+    coords: np.ndarray  # shape (n, 2) or (n, 3)
+    document_ids: list[int]
+    method: str
+    params_key: str
+    fingerprint: str
+
+
 _BUNDLES: dict[str, MatrixBundle] = {}
 _EMBEDDINGS: dict[str, EmbeddingBundle] = {}
+_DENDROGRAMS: dict[str, DendrogramBundle] = {}
+_VIZ: dict[str, VizEmbeddingBundle] = {}
 
 
 def put_bundle(token: str, bundle: MatrixBundle) -> None:
     _BUNDLES[token] = bundle
-    # A new count matrix invalidates any prior embedding for this session.
+    # A new count matrix invalidates analysis + viz caches for this session.
     _EMBEDDINGS.pop(token, None)
+    _DENDROGRAMS.pop(token, None)
+    _VIZ.pop(token, None)
 
 
 def get_bundle(token: str) -> MatrixBundle | None:
@@ -72,10 +98,14 @@ def get_bundle(token: str) -> MatrixBundle | None:
 def clear_bundle(token: str) -> None:
     _BUNDLES.pop(token, None)
     _EMBEDDINGS.pop(token, None)
+    _DENDROGRAMS.pop(token, None)
+    _VIZ.pop(token, None)
 
 
 def put_embedding(token: str, bundle: EmbeddingBundle) -> None:
     _EMBEDDINGS[token] = bundle
+    # New analysis embedding invalidates the dendrogram tree.
+    _DENDROGRAMS.pop(token, None)
 
 
 def get_embedding(token: str) -> EmbeddingBundle | None:
@@ -84,3 +114,28 @@ def get_embedding(token: str) -> EmbeddingBundle | None:
 
 def clear_embedding(token: str) -> None:
     _EMBEDDINGS.pop(token, None)
+    _DENDROGRAMS.pop(token, None)
+
+
+def put_dendrogram(token: str, bundle: DendrogramBundle) -> None:
+    _DENDROGRAMS[token] = bundle
+
+
+def get_dendrogram(token: str) -> DendrogramBundle | None:
+    return _DENDROGRAMS.get(token)
+
+
+def clear_dendrogram(token: str) -> None:
+    _DENDROGRAMS.pop(token, None)
+
+
+def put_viz(token: str, bundle: VizEmbeddingBundle) -> None:
+    _VIZ[token] = bundle
+
+
+def get_viz(token: str) -> VizEmbeddingBundle | None:
+    return _VIZ.get(token)
+
+
+def clear_viz(token: str) -> None:
+    _VIZ.pop(token, None)

@@ -21,11 +21,22 @@ class FeatureState(rx.State):
     ignore_proper_names: bool = True
 
     @rx.event
-    def set_mode(self, mode: str | list[str]):
+    async def set_mode(self, mode: str | list[str]):
         # SegmentedControl may pass a single value or a list.
         value = mode[0] if isinstance(mode, list) else mode
         if value in (MODE_LEMMA, MODE_MORPHOLOGY):
             self.mode = value
+            # Match the two originals: lemma plateau >=70, morphology >=50,
+            # and Ward-artifact leaf marking only in morphology.
+            from dss_clustering.states.data_state import DataState
+            from dss_clustering.states.dendrogram_state import DendrogramState
+            from dss_clustering.states.svd_state import SVDState
+
+            svd = await self.get_state(SVDState)
+            svd.plateau_min = 70 if value == MODE_LEMMA else 50
+            dendro = await self.get_state(DendrogramState)
+            dendro.mark_ward_artifacts = value == MODE_MORPHOLOGY
+            return DataState.load_documents
 
     @rx.event
     def toggle_morph_column(self, column: str):
@@ -92,7 +103,7 @@ class FeatureState(rx.State):
             ignore_note = (
                 " Proper-name rows are excluded."
                 if self.ignore_proper_names
-                else " Proper-name rows are included."
+                else " Proper-name rows collapse to subtype=properName."
             )
             return f"Morphology mode using {cols}.{ignore_note}"
         return f"Morphology mode using {cols}."

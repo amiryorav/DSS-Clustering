@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 
-import pandas as pd
 import reflex as rx
-from sqlmodel import select
 
-from dss_clustering.models import LemmaRow
-from dss_clustering.pipeline.matrix import build_count_matrix
+from dss_clustering.pipeline.aggregate import (
+    count_matrix_from_groups,
+    signature_count_query,
+)
 from dss_clustering.pipeline.runtime import MatrixBundle, clear_bundle, put_bundle
 from dss_clustering.states.data_state import VALID_ROW_TYPE, DataState
 from dss_clustering.states.feature_state import FeatureState
@@ -95,35 +95,31 @@ class VectorizeState(rx.State):
                 return
 
             self.is_running = True
-            self.progress_message = "Loading lemma rows from the database…"
+            self.progress_message = (
+                f"Aggregating signature counts for {len(doc_ids)} books…"
+            )
             self.status_message = self.progress_message
 
         try:
-            load_cols = ["document_id", *active_columns]
-            if ignore and "subtype" not in load_cols:
-                load_cols.append("subtype")
-            seen: set[str] = set()
-            ordered_cols: list[str] = []
-            for c in load_cols:
-                if c not in seen:
-                    seen.add(c)
-                    ordered_cols.append(c)
-
-            entities = [getattr(LemmaRow, c) for c in ordered_cols]
+            # Grouping in the database keeps memory proportional to the matrix's
+            # non-zero count instead of the corpus row count.
             with rx.session() as session:
-                rows = session.exec(
-                    select(*entities)
-                    .where(LemmaRow.document_id.in_(doc_ids))
-                    .where(LemmaRow.row_type == VALID_ROW_TYPE)
+                groups = session.exec(
+                    signature_count_query(
+                        doc_ids,
+                        active_columns,
+                        row_type=VALID_ROW_TYPE,
+                        ignore_proper_names=ignore,
+                    )
                 ).all()
 
             async with self:
                 self.progress_message = (
-                    f"Building signatures for {len(rows):,} rows…"
+                    f"Assembling matrix from {len(groups):,} signature groups…"
                 )
                 self.status_message = self.progress_message
 
-            if not rows:
+            if not groups:
                 async with self:
                     clear_bundle(token)
                     self.has_matrix = False
@@ -143,17 +139,10 @@ class VectorizeState(rx.State):
                     self.is_running = False
                 return
 
-            if len(ordered_cols) == 1:
-                df = pd.DataFrame({ordered_cols[0]: list(rows)})
-            else:
-                df = pd.DataFrame(rows, columns=ordered_cols)
-
-            matrix, out_doc_ids, signatures, n_source = build_count_matrix(
-                df,
-                active_columns,
-                ignore_proper_names=ignore,
-                document_ids=doc_ids,
+            matrix, out_doc_ids, signatures, n_source = count_matrix_from_groups(
+                groups, doc_ids
             )
+            del groups
             fp = _fingerprint(doc_ids, feature_mode, active_columns, ignore)
             put_bundle(
                 token,
