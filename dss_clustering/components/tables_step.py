@@ -29,16 +29,77 @@ def _member_badge(row: dict) -> rx.Component:
     )
 
 
+def _side_picker(
+    *,
+    caption: str,
+    kind,
+    value,
+    options,
+    on_kind_change,
+    on_value_change,
+    color: str,
+) -> rx.Component:
+    return rx.hstack(
+        rx.badge(caption, color_scheme=color, size="2", variant="solid"),
+        rx.segmented_control.root(
+            rx.segmented_control.item("Corpus", value=SCOPE_CORPUS),
+            rx.segmented_control.item("Cluster", value=SCOPE_CLUSTER),
+            rx.segmented_control.item("Manual cluster", value=SCOPE_MANUAL),
+            rx.segmented_control.item("Book", value=SCOPE_BOOK),
+            value=kind,
+            on_change=on_kind_change,
+            size="1",
+        ),
+        rx.select.root(
+            rx.select.trigger(placeholder="Choose…"),
+            rx.select.content(rx.foreach(options, _scope_option)),
+            value=value,
+            on_change=on_value_change,
+            size="2",
+        ),
+        spacing="3",
+        flex_wrap="wrap",
+        align="center",
+        width="100%",
+    )
+
+
+def _member_panel(title, rows, color: str) -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            rx.badge(title, color_scheme=color, variant="soft", size="2"),
+            rx.text(rows.length().to(str) + " books", size="1", color="gray"),
+            spacing="2",
+            align="center",
+        ),
+        rx.cond(
+            rows.length() > 0,
+            rx.hstack(
+                rx.foreach(rows, _member_badge),
+                spacing="2",
+                flex_wrap="wrap",
+            ),
+            rx.text("No books in this group.", size="1", color="gray"),
+        ),
+        width="100%",
+        spacing="2",
+        align="start",
+        border="1px solid var(--gray-a6)",
+        border_radius="md",
+        padding="0.75rem",
+    )
+
+
 def tables_step() -> rx.Component:
-    """Top / distinctive / gap tables with purity and stability metrics."""
+    """Top / distinctive / gap tables for an explicit X-versus-Y comparison."""
     return rx.vstack(
         step_header("9. Data tables", "tables"),
         help_panel("tables"),
         rx.text(
-            "Top, distinctive, and gap features for any corpus, dendrogram "
-            "cluster, saved manual cluster, or book. "
-            "Corpus-wide stability is shown once above the tables; purity appears "
-            "in book scope and consistency in cluster scope.",
+            "Pick the subject group X and the reference group Y. Each side can be "
+            "a corpus (or the whole selection), a dendrogram cluster, one of your "
+            "saved manual clusters, or a single book. Books that appear on both "
+            "sides are removed from Y so the comparison stays meaningful.",
             color="gray",
         ),
         rx.hstack(
@@ -48,41 +109,54 @@ def tables_step() -> rx.Component:
             align="center",
         ),
         help_panel("consistency_score"),
-        rx.hstack(
-            rx.segmented_control.root(
-                rx.segmented_control.item("Corpus", value=SCOPE_CORPUS),
-                rx.segmented_control.item("Cluster", value=SCOPE_CLUSTER),
-                rx.segmented_control.item("Manual cluster", value=SCOPE_MANUAL),
-                rx.segmented_control.item("Book", value=SCOPE_BOOK),
-                value=TableState.scope,
-                on_change=TableState.set_scope,
+        rx.vstack(
+            _side_picker(
+                caption="Compare X",
+                kind=TableState.x_kind,
+                value=TableState.x_value,
+                options=TableState.x_options,
+                on_kind_change=TableState.set_x_kind,
+                on_value_change=TableState.set_x_value,
+                color="indigo",
             ),
-            rx.select.root(
-                rx.select.trigger(placeholder="Scope value…"),
-                rx.select.content(
-                    rx.foreach(TableState.scope_options_rows, _scope_option),
+            _side_picker(
+                caption="to Y",
+                kind=TableState.y_kind,
+                value=TableState.y_value,
+                options=TableState.y_options,
+                on_kind_change=TableState.set_y_kind,
+                on_value_change=TableState.set_y_value,
+                color="gray",
+            ),
+            rx.hstack(
+                rx.button(
+                    "Compare",
+                    on_click=TableState.recompute,
+                    size="2",
                 ),
-                value=TableState.scope_value,
-                on_change=TableState.set_scope_value,
-                size="2",
+                rx.button(
+                    "Swap X / Y",
+                    on_click=TableState.swap_sides,
+                    size="2",
+                    variant="soft",
+                ),
+                rx.input(
+                    placeholder="Filter signatures…",
+                    value=TableState.filter_text,
+                    on_change=TableState.set_filter_text,
+                    size="2",
+                    max_width="16rem",
+                ),
+                spacing="3",
+                flex_wrap="wrap",
+                align="center",
             ),
-            rx.input(
-                placeholder="Filter signatures…",
-                value=TableState.filter_text,
-                on_change=TableState.set_filter_text,
-                size="2",
-                max_width="16rem",
-            ),
-            rx.button(
-                "Refresh",
-                on_click=TableState.recompute,
-                size="2",
-                variant="soft",
-            ),
-            spacing="3",
-            flex_wrap="wrap",
-            align="center",
             width="100%",
+            spacing="3",
+            align="start",
+            border="1px solid var(--gray-a6)",
+            border_radius="md",
+            padding="0.75rem",
         ),
         rx.hstack(
             rx.badge(
@@ -91,9 +165,9 @@ def tables_step() -> rx.Component:
                 color_scheme="green",
             ),
             rx.cond(
-                TableState.scope == SCOPE_BOOK,
+                TableState.show_purity,
                 rx.badge(
-                    "Purity: "
+                    "Purity of X: "
                     + TableState.purity_verdict
                     + " ("
                     + TableState.purity_score.to(str)
@@ -102,10 +176,9 @@ def tables_step() -> rx.Component:
                 ),
             ),
             rx.cond(
-                (TableState.scope == SCOPE_CLUSTER)
-                | (TableState.scope == SCOPE_MANUAL),
+                TableState.show_consistency,
                 rx.badge(
-                    "Consistency: " + TableState.consistency_label,
+                    "Consistency of X: " + TableState.consistency_label,
                     variant="soft",
                     color_scheme="blue",
                 ),
@@ -113,28 +186,16 @@ def tables_step() -> rx.Component:
             spacing="3",
             flex_wrap="wrap",
         ),
-        rx.cond(
-            ((TableState.scope == SCOPE_CLUSTER) | (TableState.scope == SCOPE_MANUAL))
-            & (TableState.group_member_rows.length() > 0),
-            rx.vstack(
-                rx.text(
-                    "Books in this group ("
-                    + TableState.group_member_rows.length().to(str)
-                    + ")",
-                    size="2",
-                    weight="bold",
-                ),
-                rx.hstack(
-                    rx.foreach(TableState.group_member_rows, _member_badge),
-                    spacing="2",
-                    flex_wrap="wrap",
-                ),
-                width="100%",
-                spacing="2",
-                border="1px solid var(--gray-a6)",
-                border_radius="md",
-                padding="0.75rem",
+        rx.grid(
+            _member_panel(
+                "X — " + TableState.x_label, TableState.x_member_rows, "indigo"
             ),
+            _member_panel(
+                "Y — " + TableState.y_label, TableState.y_member_rows, "gray"
+            ),
+            columns=rx.breakpoints(initial="1", md="2"),
+            spacing="3",
+            width="100%",
         ),
         rx.text(TableState.status_message, size="2", color="gray"),
         rx.text(ExportState.status_message, size="2", color="gray"),
@@ -143,7 +204,7 @@ def tables_step() -> rx.Component:
             rx.grid(
                 feature_grid(
                     grid_id="tables-top",
-                    title="Top features",
+                    title="Top features in X",
                     rows=TableState.filtered_top_rows,
                     help_key="top_features",
                     export_source="tables",
@@ -151,7 +212,7 @@ def tables_step() -> rx.Component:
                 ),
                 feature_grid(
                     grid_id="tables-distinctive",
-                    title="Distinctive features",
+                    title=TableState.distinctive_title,
                     rows=TableState.filtered_distinctive_rows,
                     help_key="distinctive_features",
                     export_source="tables",
@@ -159,7 +220,7 @@ def tables_step() -> rx.Component:
                 ),
                 feature_grid(
                     grid_id="tables-gap",
-                    title="Gap features",
+                    title=TableState.gap_title,
                     rows=TableState.filtered_gap_rows,
                     help_key="gap_features",
                     export_source="tables",

@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import reflex as rx
+from sqlalchemy import JSON, Column, ForeignKey, Integer, UniqueConstraint
 from sqlmodel import Field
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Document(rx.Model, table=True):
@@ -38,3 +45,48 @@ class LemmaRow(rx.Model, table=True):
     state: str | None = Field(default=None)
     mood: str | None = Field(default=None)
     subtype: str | None = Field(default=None)
+
+
+class User(rx.Model, table=True):
+    """Owner of saved manual clusters.
+
+    ``google_sub`` stays empty until Google sign-in is wired up; ``local_key``
+    is a per-browser identifier so saved work survives restarts before then.
+    """
+
+    __tablename__ = "users"
+
+    google_sub: str | None = Field(default=None, unique=True, index=True)
+    local_key: str | None = Field(default=None, unique=True, index=True)
+    email: str | None = Field(default=None)
+    display_name: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class ManualCluster(rx.Model, table=True):
+    """A hand-picked group of books, owned by a user."""
+
+    __tablename__ = "manual_clusters"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_manual_clusters_user_name"),
+    )
+
+    user_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    name: str = Field(index=True)
+    document_ids: list[int] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    feature_mode: str = Field(default="")
+    comparison_scope_type: str = Field(default="")
+    comparison_scope_value: str = Field(default="")
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)

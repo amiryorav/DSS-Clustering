@@ -7,6 +7,7 @@ import reflex as rx
 from dss_clustering.colors import COLOR_PALETTE
 from dss_clustering.components.export_bar import plot_export_bar
 from dss_clustering.components.help import help_button, help_panel, step_header
+from dss_clustering.components.plotly_relayout import plotly_relayout
 from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.plot_state import (
     COLOR_CLUSTER,
@@ -188,7 +189,9 @@ def plot_step() -> rx.Component:
             ),
             rx.segmented_control.root(
                 rx.segmented_control.item("Identity", value=COLOR_IDENTITY),
-                rx.segmented_control.item("Cluster", value=COLOR_CLUSTER),
+                rx.segmented_control.item(
+                    "Dendrogram clusters", value=COLOR_CLUSTER
+                ),
                 value=PlotState.color_mode,
                 on_change=PlotState.set_color_mode,
             ),
@@ -257,15 +260,24 @@ def plot_step() -> rx.Component:
             ),
         ),
         rx.text(PlotState.status_message, size="2", color="gray"),
+        rx.cond(
+            PlotState.camera_captured,
+            rx.badge(
+                "Current rotation will be used for PNG/PDF export",
+                color_scheme="green",
+                variant="soft",
+            ),
+        ),
         rx.text(ExportState.status_message, size="2", color="gray"),
         rx.cond(
             PlotState.has_figure,
             rx.vstack(
                 plot_export_bar(kind="plot"),
                 rx.box(
-                    rx.plotly(
+                    plotly_relayout(
                         data=PlotState.figure,
                         on_click=PlotState.on_point_click,
+                        on_relayout=PlotState.on_relayout,
                     ),
                     width="100%",
                     border="1px solid var(--gray-a6)",

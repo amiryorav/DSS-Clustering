@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import reflex as rx
 
 from dss_clustering.pipeline.metrics import (
@@ -22,13 +20,16 @@ from dss_clustering.pipeline.metrics import (
     ward_merge_height,
 )
 from dss_clustering.pipeline.runtime import get_bundle, get_dendrogram, get_embedding
+from dss_clustering.repository import delete_manual_cluster, list_manual_clusters, save_manual_cluster
 from dss_clustering.states.data_state import (
     CORPUS_LABELS,
     CORPUS_ORDER,
     DataState,
 )
 from dss_clustering.states.dendrogram_state import DendrogramState
+from dss_clustering.states.feature_state import FeatureState
 from dss_clustering.states.rescale_state import RescaleState
+from dss_clustering.states.user_state import UserState
 
 
 class ManualClusterState(rx.State):
@@ -39,9 +40,8 @@ class ManualClusterState(rx.State):
     comparison_scope_type: str = COMPARE_CORPUS
     comparison_scope_value: str = "mikra"
     saved_name: str = ""
-    # Session-only saved groups: [{id, name, document_ids, ...}]
+    # Saved groups for the current user, loaded from `manual_clusters`.
     saved_groups: list[dict] = []
-    _next_group_id: int = 1
     comparison_options_rows: list[dict] = [
         {"value": corpus, "label": CORPUS_LABELS.get(corpus, corpus)}
         for corpus in CORPUS_ORDER
@@ -268,6 +268,23 @@ class ManualClusterState(rx.State):
             self.has_results = False
             self.status_message = f"Manual compare failed: {exc}"
 
+    async def reload_saved_groups(self) -> None:
+        """Refresh the saved-cluster list for the signed-in / local user."""
+        user = await self.get_state(UserState)
+        user_id = await user.ensure_user_id()
+        if not user_id:
+            self.saved_groups = []
+            return
+        try:
+            self.saved_groups = list_manual_clusters(user_id)
+        except Exception as exc:  # noqa: BLE001
+            self.saved_groups = []
+            self.status_message = f"Could not load saved clusters: {exc}"
+
+    @rx.event
+    async def load_saved_groups(self):
+        await self.reload_saved_groups()
+
     @rx.event
     async def save_group(self):
         name = self.saved_name.strip()
@@ -277,18 +294,46 @@ class ManualClusterState(rx.State):
         if not self.picked_document_ids:
             self.status_message = "Nothing to save — pick books first."
             return
-        entry = {
-            "id": self._next_group_id,
-            "name": name,
-            "document_ids": list(self.picked_document_ids),
-            "n_books": len(self.picked_document_ids),
-            "comparison_scope_type": self.comparison_scope_type,
-            "comparison_scope_value": self.comparison_scope_value,
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-        }
-        self._next_group_id += 1
-        self.saved_groups = [*self.saved_groups, entry]
-        self.status_message = f"Saved group '{name}' for this session."
+
+        user = await self.get_state(UserState)
+        user_id = await user.ensure_user_id()
+        if not user_id:
+            self.status_message = (
+                "Could not resolve a user id, so the cluster was not saved."
+            )
+            return
+
+        feature = await self.get_state(FeatureState)
+        try:
+            save_manual_cluster(
+                user_id,
+                name=name,
+                document_ids=list(self.picked_document_ids),
+                feature_mode=feature.mode,
+                comparison_scope_type=self.comparison_scope_type,
+                comparison_scope_value=self.comparison_scope_value,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.status_message = f"Save failed: {exc}"
+            return
+
+        self.saved_groups = list_manual_clusters(user_id)
+        self.status_message = (
+            f"Saved '{name}' ({len(self.picked_document_ids)} books) to your account."
+        )
+
+    @rx.event
+    async def delete_group(self, group_id: int):
+        user = await self.get_state(UserState)
+        user_id = await user.ensure_user_id()
+        if not user_id:
+            return
+        try:
+            delete_manual_cluster(user_id, int(group_id))
+            self.saved_groups = list_manual_clusters(user_id)
+            self.status_message = "Deleted saved cluster."
+        except Exception as exc:  # noqa: BLE001
+            self.status_message = f"Delete failed: {exc}"
 
     @rx.event
     def load_group(self, group_id: int):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import reflex as rx
 from plotly.graph_objects import Figure
 
@@ -75,7 +77,10 @@ class ExportState(rx.State):
         if not plot.has_figure:
             self.status_message = "No 3D plot to export."
             return
-        return self._download_figure(plot.figure, f"plot_{plot.method}", fmt)
+        figure = deepcopy(plot.figure)
+        if plot.camera:
+            figure.update_layout(scene_camera=plot.camera)
+        return self._download_figure(figure, f"plot_{plot.method}", fmt)
 
     @rx.event
     async def export_dendrogram(self, fmt: str):
@@ -131,7 +136,7 @@ class ExportState(rx.State):
                 "gap": table.filtered_gap_rows,
             }
             rows = list(mapping.get(kind, []))
-            stem = f"tables_{kind}_{table.scope}_{table.scope_value}"
+            stem = f"tables_{kind}_{table.export_slug}"
             return rows, stem, title
         if source == "manual":
             from dss_clustering.states.manual_cluster_state import ManualClusterState

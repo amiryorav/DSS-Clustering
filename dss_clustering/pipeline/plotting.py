@@ -49,6 +49,9 @@ def make_3d_scatter(
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
         height=520,
+        # Keep the user's camera stable when unrelated Reflex state updates
+        # cause react-plotly.js to receive the figure again.
+        uirevision="plot-camera",
         scene={
             "xaxis_title": axis_titles[0],
             "yaxis_title": axis_titles[1],

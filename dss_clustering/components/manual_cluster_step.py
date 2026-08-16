@@ -43,6 +43,13 @@ def _saved_group_row(group: dict) -> rx.Component:
             variant="soft",
             on_click=ManualClusterState.load_group(group["id"]),
         ),
+        rx.button(
+            "Delete",
+            size="1",
+            variant="soft",
+            color_scheme="red",
+            on_click=ManualClusterState.delete_group(group["id"]),
+        ),
         width="100%",
         align="center",
     )
@@ -174,14 +181,35 @@ def manual_cluster_step() -> rx.Component:
             spacing="3",
             align="center",
         ),
-        rx.cond(
-            ManualClusterState.saved_groups.length() > 0,
-            rx.vstack(
-                rx.text("Saved groups (this session)", size="2", weight="bold"),
-                rx.foreach(ManualClusterState.saved_groups, _saved_group_row),
-                width="100%",
+        rx.vstack(
+            rx.hstack(
+                rx.text("Your saved clusters", size="2", weight="bold"),
+                rx.button(
+                    "Refresh",
+                    size="1",
+                    variant="ghost",
+                    on_click=ManualClusterState.load_saved_groups,
+                ),
                 spacing="2",
+                align="center",
             ),
+            rx.cond(
+                ManualClusterState.saved_groups.length() > 0,
+                rx.vstack(
+                    rx.foreach(ManualClusterState.saved_groups, _saved_group_row),
+                    width="100%",
+                    spacing="2",
+                ),
+                rx.text(
+                    "No saved clusters yet. Saved clusters are stored under your "
+                    "user id and can be picked as X or Y in the data tables.",
+                    size="1",
+                    color="gray",
+                ),
+            ),
+            width="100%",
+            spacing="2",
+            align="start",
         ),
         rx.text(ManualClusterState.status_message, size="2", color="gray"),
         rx.cond(

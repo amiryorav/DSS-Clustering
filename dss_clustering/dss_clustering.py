@@ -14,8 +14,14 @@ from dss_clustering.components.saved_config_step import saved_config_step
 from dss_clustering.components.svd_step import svd_step
 from dss_clustering.components.tables_step import tables_step
 from dss_clustering.components.vectorize_step import vectorize_step
-from dss_clustering.models import Document, LemmaRow  # noqa: F401
+from dss_clustering.models import (  # noqa: F401
+    Document,
+    LemmaRow,
+    ManualCluster,
+    User,
+)
 from dss_clustering.states.data_state import DataState
+from dss_clustering.states.manual_cluster_state import ManualClusterState
 
 
 def index() -> rx.Component:
@@ -56,7 +62,7 @@ def index() -> rx.Component:
         width="100%",
         max_width="100%",
         padding_x="1.5rem",
-        on_mount=DataState.load_documents,
+        on_mount=[DataState.load_documents, ManualClusterState.load_saved_groups],
     )
 
 

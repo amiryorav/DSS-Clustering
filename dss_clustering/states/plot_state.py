@@ -45,6 +45,9 @@ class PlotState(rx.State):
     visible_document_ids: list[int] = []
     plot_books: list[dict] = []
     book_search: str = ""
+    # Last interactive Plotly camera, captured after a rotation finishes.
+    camera: dict = {}
+    camera_captured: bool = False
 
     # UMAP / t-SNE hyperparameters
     umap_n_neighbors: int = 15
@@ -208,6 +211,40 @@ class PlotState(rx.State):
         # through async get_state; the latter can produce an invalid frontend
         # callback after Plotly emits a click.
         return ManualClusterState.toggle_document(doc_id)
+
+    @rx.event
+    def on_relayout(self, event_data: dict):
+        """Remember the current 3D camera for redraws and static exports."""
+        if not isinstance(event_data, dict):
+            return
+        camera = event_data.get("scene.camera")
+        if isinstance(camera, dict):
+            self.camera = camera
+            self.camera_captured = True
+            return
+
+        # Plotly may report individual nested camera properties instead.
+        prefix = "scene.camera."
+        updates = {
+            str(key)[len(prefix) :]: value
+            for key, value in event_data.items()
+            if str(key).startswith(prefix)
+        }
+        if not updates:
+            return
+        merged = dict(self.camera)
+        for path, value in updates.items():
+            parts = path.split(".")
+            target = merged
+            for part in parts[:-1]:
+                child = target.get(part)
+                if not isinstance(child, dict):
+                    child = {}
+                    target[part] = child
+                target = child
+            target[parts[-1]] = value
+        self.camera = merged
+        self.camera_captured = True
 
     @rx.event
     def toggle_book_visibility(self, document_id: int):
@@ -475,7 +512,7 @@ class PlotState(rx.State):
             return
 
         try:
-            self.figure = make_3d_scatter(
+            figure = make_3d_scatter(
                 xs,
                 ys,
                 zs,
@@ -486,6 +523,9 @@ class PlotState(rx.State):
                 axis_titles=axis_titles or ("X", "Y", "Z"),
                 show_labels=show_labels,
             )
+            if self.camera:
+                figure.update_layout(scene_camera=self.camera)
+            self.figure = figure
             self.has_figure = True
             label_note = "short labels" if show_labels else "labels hidden"
             color_note = "cluster colors" if use_cluster else "identity colors"

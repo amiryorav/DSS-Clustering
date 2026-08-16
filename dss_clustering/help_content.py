@@ -76,6 +76,9 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
             "feeds the dendrogram and tables. UMAP and t-SNE are "
             "visualization-only fits on the active matrix: they never "
             "change clustering, feature tables, or purity / consistency. "
+            "Dendrogram-cluster coloring uses the current cut and the same "
+            "palette as the tree. Rotating the plot also updates the camera "
+            "used by PNG and PDF exports. "
             "Clicking a point starts a fresh manual group when picking is "
             "inactive, then toggles that book in the group."
         ),
@@ -85,8 +88,8 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "body": (
             "Built from the SVD analysis embedding. Ward linkage locks "
             "distance to Euclidean; average linkage may use Euclidean or "
-            "cosine. Moving the cut-height slider recolors clusters without "
-            "refitting the tree. When Ward-artifact marking is on, gray "
+            "cosine. Releasing the cut-height slider recolors clusters "
+            "without refitting the tree. When Ward-artifact marking is on, gray "
             "italic leaves have less than 20% overlap across top-5 Ward, "
             "SVD-Euclidean, and SVD-cosine neighbors. The original enabled "
             "this for morphology only: lemma features flag roughly a quarter "

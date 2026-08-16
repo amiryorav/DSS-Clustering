@@ -8,14 +8,51 @@ from scipy.cluster.hierarchy import linkage
 
 from dss_clustering.pipeline.dendrogram import make_dendrogram_figure
 from dss_clustering.pipeline.metrics import (
+    CORPUS_ALL,
+    SCOPE_BOOK,
+    SCOPE_CLUSTER,
+    SCOPE_CORPUS,
+    SCOPE_MANUAL,
     build_phase_rows,
     corpus_wide_stability,
     diff_features,
     nearest_group_by_centroid,
+    resolve_side,
     shared_features,
     ward_artifact_document_ids,
     ward_merge_height,
 )
+
+SELECTED = [1, 2, 3, 4]
+DOCUMENT_CORPUS = {1: "mikra", 2: "mikra", 3: "mishna", 4: "dss"}
+CLUSTER_OF = {1: 1, 2: 1, 3: 2, 4: 2}
+MANUAL_GROUPS = {"7": [2, 4, 99]}
+
+
+def _resolve(kind: str, value: str) -> list[int]:
+    return resolve_side(
+        kind,
+        value,
+        selected_document_ids=SELECTED,
+        document_corpus=DOCUMENT_CORPUS,
+        cluster_of=CLUSTER_OF,
+        manual_groups=MANUAL_GROUPS,
+    )
+
+
+def test_resolve_side_covers_every_group_kind():
+    assert _resolve(SCOPE_CORPUS, CORPUS_ALL) == SELECTED
+    assert _resolve(SCOPE_CORPUS, "mikra") == [1, 2]
+    assert _resolve(SCOPE_CLUSTER, "2") == [3, 4]
+    assert _resolve(SCOPE_BOOK, "3") == [3]
+    # Manual groups are filtered down to the current selection (99 is dropped).
+    assert _resolve(SCOPE_MANUAL, "7") == [2, 4]
+
+
+def test_resolve_side_returns_empty_for_unknown_values():
+    assert _resolve(SCOPE_MANUAL, "does-not-exist") == []
+    assert _resolve(SCOPE_CLUSTER, "not-a-number") == []
+    assert _resolve(SCOPE_BOOK, "999") == []
 
 
 def test_shared_and_diff_features():

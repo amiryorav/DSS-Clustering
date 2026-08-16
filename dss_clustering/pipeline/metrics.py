@@ -22,6 +22,8 @@ SCOPE_CORPUS = "corpus"
 SCOPE_CLUSTER = "cluster"
 SCOPE_BOOK = "book"
 SCOPE_MANUAL = "manual"
+# Corpus-scope sentinel meaning "every selected book", not one named corpus.
+CORPUS_ALL = "__all__"
 COMPARE_CORPUS = "corpus"
 COMPARE_ALL_OTHER = "all_other_selected"
 COMPARE_EXISTING_CLUSTER = "existing_cluster"
@@ -360,6 +362,36 @@ def resolve_group(
             return []
         return [doc_id] if doc_id in selected else []
     return selected
+
+
+def resolve_side(
+    kind: str,
+    value: str,
+    *,
+    selected_document_ids: list[int],
+    document_corpus: dict[int, str],
+    cluster_of: dict[int, int],
+    manual_groups: dict[str, Iterable[int]] | None = None,
+) -> list[int]:
+    """Resolve one side of an X-vs-Y comparison to a list of document ids.
+
+    ``kind`` is one of the ``SCOPE_*`` constants. A corpus side may use
+    :data:`CORPUS_ALL` to mean the whole selection.
+    """
+    selected = list(selected_document_ids)
+    if kind == SCOPE_MANUAL:
+        members = (manual_groups or {}).get(str(value), [])
+        allowed = set(selected)
+        return [int(i) for i in members if int(i) in allowed]
+    if kind == SCOPE_CORPUS and str(value) == CORPUS_ALL:
+        return selected
+    return resolve_group(
+        kind,
+        str(value),
+        selected_document_ids=selected,
+        document_corpus=document_corpus,
+        cluster_of=cluster_of,
+    )
 
 
 def resolve_comparison(

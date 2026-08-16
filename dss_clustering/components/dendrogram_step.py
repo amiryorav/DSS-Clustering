@@ -24,7 +24,7 @@ def dendrogram_step() -> rx.Component:
         rx.text(
             "Hierarchical clustering on the SVD analysis embedding. "
             "Ward locks distance to Euclidean; average allows Euclidean or cosine. "
-            "Moving the cut height recolors clusters without refitting the tree.",
+            "Release the cut-height slider to recolor clusters without refitting the tree.",
             color="gray",
         ),
         rx.hstack(
@@ -103,7 +103,7 @@ def dendrogram_step() -> rx.Component:
                     rx.text("Cut height", size="2", white_space="nowrap"),
                     rx.slider(
                         value=[DendrogramState.cut_height],
-                        on_change=DendrogramState.set_cut_height,
+                        on_value_commit=DendrogramState.set_cut_height,
                         min=0.0,
                         max=DendrogramState.max_height,
                         step=0.001,
