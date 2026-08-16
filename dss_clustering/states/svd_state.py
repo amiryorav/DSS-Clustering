@@ -19,6 +19,7 @@ from dss_clustering.pipeline.svd import (
     run_svd,
     run_svd_sweep,
 )
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.rescale_state import RescaleState
 from dss_clustering.states.vectorize_state import VectorizeState
 
@@ -207,6 +208,7 @@ class SVDState(rx.State):
                 "Sweeping SVD sizes…" if mode == MODE_SWEEP and enabled else "Running SVD…"
             )
             self.status_message = self.progress_message
+            (await self.get_state(BusyState)).begin(self.progress_message)
 
         try:
             matrix = bundle.rescaled(rescale_mode)
@@ -274,11 +276,26 @@ class SVDState(rx.State):
                         f"density {self.density_label}."
                     )
                 elif mode == MODE_SWEEP:
+                    tried = ", ".join(str(r["n"]) for r in sweep_rows)
+                    capped = (
+                        f" Requested up to {sweep_max}, but this "
+                        f"{matrix.shape[0]} × {matrix.shape[1]} matrix supports at "
+                        f"most {max_n} dims, so the sweep tried {tried}."
+                        if sweep_max > max_n
+                        else ""
+                    )
+                    if plateau_min > max_n:
+                        # No candidate can clear the plateau, so the pick falls back
+                        # to the best score overall — often a very small n.
+                        capped += (
+                            f" Plateau min {plateau_min} is above that ceiling, so "
+                            f"the best cophenetic score overall was used instead."
+                        )
                     self.status_message = (
                         f"Sweep picked {n_used} dims "
                         f"(plateau ≥ {plateau_min}; max available {max_n}); "
                         f"variance explained {self.variance_explained:.1%}; "
-                        f"density {self.density_label}."
+                        f"density {self.density_label}.{capped}"
                     )
                 else:
                     note = ""
@@ -295,7 +312,11 @@ class SVDState(rx.State):
                 from dss_clustering.states.dendrogram_state import DendrogramState
                 from dss_clustering.states.plot_state import PlotState
 
-                return [PlotState.recompute, DendrogramState.refit]
+                return [
+                    PlotState.recompute,
+                    DendrogramState.refit,
+                    BusyState.release,
+                ]
         except Exception as exc:  # noqa: BLE001
             async with self:
                 clear_embedding(token)
@@ -311,3 +332,4 @@ class SVDState(rx.State):
                 self.status_message = f"SVD failed: {exc}"
                 self.progress_message = ""
                 self.is_running = False
+                (await self.get_state(BusyState)).end()

@@ -7,6 +7,7 @@ import reflex as rx
 from dss_clustering.components.busy import busy_banner
 from dss_clustering.components.help import help_button, help_panel, step_header
 from dss_clustering.states.svd_state import MODE_CONSTANT, MODE_SWEEP, SVDState
+from dss_clustering.states.vectorize_state import VectorizeState
 
 
 def _num(label: str, value, on_change, disabled=False) -> rx.Component:
@@ -27,7 +28,7 @@ def _num(label: str, value, on_change, disabled=False) -> rx.Component:
 def svd_step() -> rx.Component:
     """SVD controls: constant size or sweep-to-best (seed fixed internally)."""
     return rx.vstack(
-        step_header("5. SVD", "svd"),
+        step_header("SVD", "svd"),
         help_panel("svd"),
         rx.text(
             "Compress the active matrix into analysis-space dimensions used by "
@@ -96,6 +97,21 @@ def svd_step() -> rx.Component:
                         SVDState.plateau_min,
                         SVDState.set_plateau_min,
                     ),
+                    rx.cond(
+                        VectorizeState.max_svd_components > 0,
+                        rx.badge(
+                            "max "
+                            + VectorizeState.max_svd_components.to(str)
+                            + " dims",
+                            color_scheme=rx.cond(
+                                SVDState.sweep_max
+                                > VectorizeState.max_svd_components,
+                                "amber",
+                                "gray",
+                            ),
+                            variant="soft",
+                        ),
+                    ),
                     spacing="4",
                     flex_wrap="wrap",
                     align="center",
@@ -106,6 +122,28 @@ def svd_step() -> rx.Component:
                     SVDState.n_components,
                     SVDState.set_n_components,
                 ),
+            ),
+        ),
+        rx.cond(
+            SVDState.enabled
+            & SVDState.is_sweep
+            & (VectorizeState.max_svd_components > 0)
+            & (SVDState.sweep_max > VectorizeState.max_svd_components),
+            rx.callout.root(
+                rx.callout.icon(rx.icon("info")),
+                rx.callout.text(
+                    "The matrix supports at most "
+                    + VectorizeState.max_svd_components.to(str)
+                    + " dimensions ("
+                    + VectorizeState.n_documents.to(str)
+                    + " books × "
+                    + VectorizeState.n_signatures.to(str)
+                    + " signatures), so the sweep stops there instead of at "
+                    + SVDState.sweep_max.to(str)
+                    + ". Select more books to sweep a wider range.",
+                ),
+                color_scheme="amber",
+                width="100%",
             ),
         ),
         rx.text(SVDState.status_message, size="2", color="gray"),

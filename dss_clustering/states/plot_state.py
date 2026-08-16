@@ -14,6 +14,7 @@ from dss_clustering.pipeline.runtime import (
     put_viz,
 )
 from dss_clustering.pipeline.viz import fit_tsne, fit_umap, viz_params_key
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import (
     CORPUS_LABELS,
     CORPUS_ORDER,
@@ -31,6 +32,25 @@ METHOD_SVD = "svd"
 METHOD_UMAP = "umap"
 METHOD_TSNE = "tsne"
 
+# Reads the live gl3d camera from the rendered figure (null before first draw).
+CAMERA_SNIPPET = """
+(() => {
+  const gd = document.querySelector('.js-plotly-plot');
+  const cam = gd && gd._fullLayout && gd._fullLayout.scene
+    ? gd._fullLayout.scene.camera
+    : null;
+  return cam ? JSON.parse(JSON.stringify(cam)) : null;
+})()
+"""
+
+# Wait for two browser paint frames after enabling the blocking overlay before
+# asking the backend to begin CPU-heavy dimensionality reduction.
+WAIT_FOR_BUSY_PAINT = """
+new Promise((resolve) => {
+  requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+})
+"""
+
 
 class PlotState(rx.State):
     """Interactive 3D scatter — SVD (analysis) or UMAP/t-SNE (viz-only)."""
@@ -45,9 +65,9 @@ class PlotState(rx.State):
     visible_document_ids: list[int] = []
     plot_books: list[dict] = []
     book_search: str = ""
-    # Last interactive Plotly camera, captured after a rotation finishes.
+    # Browser camera, read on demand so exports match the on-screen view.
     camera: dict = {}
-    camera_captured: bool = False
+    pending_export_format: str = "png"
 
     # UMAP / t-SNE hyperparameters
     umap_n_neighbors: int = 15
@@ -123,7 +143,11 @@ class PlotState(rx.State):
         value = method[0] if isinstance(method, list) else method
         if value in (METHOD_SVD, METHOD_UMAP, METHOD_TSNE):
             self.method = value
-            return PlotState.recompute
+            return (
+                PlotState.recompute
+                if value == METHOD_SVD
+                else PlotState.refit_viz
+            )
 
     @rx.event
     def set_color_mode(self, mode: str | list[str]):
@@ -185,9 +209,27 @@ class PlotState(rx.State):
             return
 
     @rx.event
-    def refit_viz(self):
-        """Force re-fit of UMAP/t-SNE with current hyperparameters."""
-        return PlotState.recompute
+    async def refit_viz(self):
+        """Paint the blocking overlay before starting a UMAP/t-SNE fit."""
+        busy = await self.get_state(BusyState)
+        busy.begin(f"Fitting {self.method.upper()} projection…")
+        self.is_fitting_viz = True
+        return rx.call_script(
+            WAIT_FOR_BUSY_PAINT,
+            callback=PlotState.run_viz_refit,
+        )
+
+    @rx.event(background=True)
+    async def run_viz_refit(self, _painted: bool = True):
+        """Fit in the background so the browser can keep rendering the overlay."""
+        try:
+            async with self:
+                await self._recompute()
+        finally:
+            async with self:
+                self.is_fitting_viz = False
+                busy = await self.get_state(BusyState)
+                busy.end()
 
     @rx.event
     def on_point_click(self, event_data):
@@ -213,38 +255,29 @@ class PlotState(rx.State):
         return ManualClusterState.toggle_document(doc_id)
 
     @rx.event
-    def on_relayout(self, event_data: dict):
-        """Remember the current 3D camera for redraws and static exports."""
-        if not isinstance(event_data, dict):
-            return
-        camera = event_data.get("scene.camera")
-        if isinstance(camera, dict):
-            self.camera = camera
-            self.camera_captured = True
-            return
+    def export_with_camera(self, fmt: str):
+        """Read the live camera out of the browser, then render the export.
 
-        # Plotly may report individual nested camera properties instead.
-        prefix = "scene.camera."
-        updates = {
-            str(key)[len(prefix) :]: value
-            for key, value in event_data.items()
-            if str(key).startswith(prefix)
-        }
-        if not updates:
-            return
-        merged = dict(self.camera)
-        for path, value in updates.items():
-            parts = path.split(".")
-            target = merged
-            for part in parts[:-1]:
-                child = target.get(part)
-                if not isinstance(child, dict):
-                    child = {}
-                    target[part] = child
-                target = child
-            target[parts[-1]] = value
-        self.camera = merged
-        self.camera_captured = True
+        Subscribing to Plotly's relayout events instead would push a state
+        update per rotation frame, and each one re-ran ``Plotly.react`` — a full
+        gl3d scene rebuild that re-vectorizes every text label and stalls the
+        main thread. Asking for the camera once per export keeps interaction on
+        the client where it belongs.
+        """
+        self.pending_export_format = "pdf" if str(fmt).lower() == "pdf" else "png"
+        return rx.call_script(
+            CAMERA_SNIPPET,
+            callback=PlotState.finish_export_with_camera,
+        )
+
+    @rx.event
+    async def finish_export_with_camera(self, camera):
+        """Store the browser camera, then hand off to the export writer."""
+        from dss_clustering.states.export_state import ExportState
+
+        if isinstance(camera, dict) and camera:
+            self.camera = camera
+        return ExportState.export_plot(self.pending_export_format)
 
     @rx.event
     def toggle_book_visibility(self, document_id: int):
@@ -404,6 +437,19 @@ class PlotState(rx.State):
 
     @rx.event
     async def recompute(self):
+        # Only UMAP / t-SNE can block long enough to need the overlay.
+        if self.method == METHOD_SVD:
+            await self._recompute()
+            return
+        busy = await self.get_state(BusyState)
+        busy.begin(f"Fitting {self.method.upper()} projection…")
+        yield
+        try:
+            await self._recompute()
+        finally:
+            busy.end()
+
+    async def _recompute(self):
         svd = await self.get_state(SVDState)
         rescale = await self.get_state(RescaleState)
         data = await self.get_state(DataState)

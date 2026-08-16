@@ -11,7 +11,7 @@ from dss_clustering.states.rescale_state import RescaleState
 def rescale_step() -> rx.Component:
     """Rescale: raw / TF / TF-IDF weighting of the count matrix."""
     return rx.vstack(
-        step_header("4. Rescale", "rescale"),
+        step_header("Rescale", "rescale"),
         help_panel("rescale"),
         rx.text(
             "Choose how raw signature counts are weighted. "

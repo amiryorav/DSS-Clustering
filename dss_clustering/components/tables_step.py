@@ -44,7 +44,7 @@ def _side_picker(
         rx.segmented_control.root(
             rx.segmented_control.item("Corpus", value=SCOPE_CORPUS),
             rx.segmented_control.item("Cluster", value=SCOPE_CLUSTER),
-            rx.segmented_control.item("Manual cluster", value=SCOPE_MANUAL),
+            rx.segmented_control.item("Manual group", value=SCOPE_MANUAL),
             rx.segmented_control.item("Book", value=SCOPE_BOOK),
             value=kind,
             on_change=on_kind_change,
@@ -91,15 +91,15 @@ def _member_panel(title, rows, color: str) -> rx.Component:
 
 
 def tables_step() -> rx.Component:
-    """Top / distinctive / gap tables for an explicit X-versus-Y comparison."""
+    """Top / distinctive / gap tables for a subject-reference comparison."""
     return rx.vstack(
-        step_header("9. Data tables", "tables"),
+        step_header("Data tables", "tables"),
         help_panel("tables"),
         rx.text(
-            "Pick the subject group X and the reference group Y. Each side can be "
+            "Pick a subject and a reference. Each side can be "
             "a corpus (or the whole selection), a dendrogram cluster, one of your "
-            "saved manual clusters, or a single book. Books that appear on both "
-            "sides are removed from Y so the comparison stays meaningful.",
+            "saved manual groups, or a single book. Books that appear on both "
+            "sides are removed from the reference so the comparison stays meaningful.",
             color="gray",
         ),
         rx.hstack(
@@ -111,7 +111,7 @@ def tables_step() -> rx.Component:
         help_panel("consistency_score"),
         rx.vstack(
             _side_picker(
-                caption="Compare X",
+                caption=TableState.x_display_label,
                 kind=TableState.x_kind,
                 value=TableState.x_value,
                 options=TableState.x_options,
@@ -120,7 +120,7 @@ def tables_step() -> rx.Component:
                 color="indigo",
             ),
             _side_picker(
-                caption="to Y",
+                caption=TableState.y_display_label,
                 kind=TableState.y_kind,
                 value=TableState.y_value,
                 options=TableState.y_options,
@@ -135,7 +135,7 @@ def tables_step() -> rx.Component:
                     size="2",
                 ),
                 rx.button(
-                    "Swap X / Y",
+                    "Swap subject / reference",
                     on_click=TableState.swap_sides,
                     size="2",
                     variant="soft",
@@ -167,7 +167,9 @@ def tables_step() -> rx.Component:
             rx.cond(
                 TableState.show_purity,
                 rx.badge(
-                    "Purity of X: "
+                    "Purity of "
+                    + TableState.x_display_label
+                    + ": "
                     + TableState.purity_verdict
                     + " ("
                     + TableState.purity_score.to(str)
@@ -178,7 +180,10 @@ def tables_step() -> rx.Component:
             rx.cond(
                 TableState.show_consistency,
                 rx.badge(
-                    "Consistency of X: " + TableState.consistency_label,
+                    "Consistency of "
+                    + TableState.x_display_label
+                    + ": "
+                    + TableState.consistency_label,
                     variant="soft",
                     color_scheme="blue",
                 ),
@@ -188,10 +193,10 @@ def tables_step() -> rx.Component:
         ),
         rx.grid(
             _member_panel(
-                "X — " + TableState.x_label, TableState.x_member_rows, "indigo"
+                TableState.x_display_label, TableState.x_member_rows, "indigo"
             ),
             _member_panel(
-                "Y — " + TableState.y_label, TableState.y_member_rows, "gray"
+                TableState.y_display_label, TableState.y_member_rows, "gray"
             ),
             columns=rx.breakpoints(initial="1", md="2"),
             spacing="3",
@@ -204,7 +209,8 @@ def tables_step() -> rx.Component:
             rx.grid(
                 feature_grid(
                     grid_id="tables-top",
-                    title="Top features in X",
+                    title="Top features",
+                    subtitle=TableState.top_subtitle,
                     rows=TableState.filtered_top_rows,
                     help_key="top_features",
                     export_source="tables",
@@ -212,7 +218,8 @@ def tables_step() -> rx.Component:
                 ),
                 feature_grid(
                     grid_id="tables-distinctive",
-                    title=TableState.distinctive_title,
+                    title="Distinctive features",
+                    subtitle=TableState.distinctive_subtitle,
                     rows=TableState.filtered_distinctive_rows,
                     help_key="distinctive_features",
                     export_source="tables",
@@ -220,7 +227,8 @@ def tables_step() -> rx.Component:
                 ),
                 feature_grid(
                     grid_id="tables-gap",
-                    title=TableState.gap_title,
+                    title="Gap features",
+                    subtitle=TableState.gap_subtitle,
                     rows=TableState.filtered_gap_rows,
                     help_key="gap_features",
                     export_source="tables",

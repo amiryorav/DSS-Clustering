@@ -7,7 +7,6 @@ import reflex as rx
 from dss_clustering.colors import COLOR_PALETTE
 from dss_clustering.components.export_bar import plot_export_bar
 from dss_clustering.components.help import help_button, help_panel, step_header
-from dss_clustering.components.plotly_relayout import plotly_relayout
 from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.plot_state import (
     COLOR_CLUSTER,
@@ -160,7 +159,7 @@ def _book_row(book) -> rx.Component:
 def plot_step() -> rx.Component:
     """3D scatter with SVD / UMAP / t-SNE, labels, and book controls."""
     return rx.vstack(
-        step_header("6. 3D plot", "plot"),
+        step_header("3D plot", "plot"),
         help_panel("plot"),
         rx.text(
             "SVD uses the analysis embedding (feeds clustering). "
@@ -260,26 +259,25 @@ def plot_step() -> rx.Component:
             ),
         ),
         rx.text(PlotState.status_message, size="2", color="gray"),
-        rx.cond(
-            PlotState.camera_captured,
-            rx.badge(
-                "Current rotation will be used for PNG/PDF export",
-                color_scheme="green",
-                variant="soft",
-            ),
-        ),
         rx.text(ExportState.status_message, size="2", color="gray"),
         rx.cond(
             PlotState.has_figure,
             rx.vstack(
                 plot_export_bar(kind="plot"),
                 rx.box(
-                    plotly_relayout(
+                    rx.plotly(
                         data=PlotState.figure,
+                        config={
+                            "scrollZoom": True,
+                            "displaylogo": False,
+                            "responsive": True,
+                        },
                         on_click=PlotState.on_point_click,
-                        on_relayout=PlotState.on_relayout,
+                        width="100%",
                     ),
                     width="100%",
+                    max_width="1100px",
+                    margin_x="auto",
                     border="1px solid var(--gray-a6)",
                     border_radius="md",
                     padding="0.5rem",
@@ -287,7 +285,7 @@ def plot_step() -> rx.Component:
                 ),
                 width="100%",
                 spacing="2",
-                align="start",
+                align="center",
             ),
         ),
         rx.cond(

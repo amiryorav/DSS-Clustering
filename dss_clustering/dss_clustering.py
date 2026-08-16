@@ -1,68 +1,52 @@
-"""Hebrew stylometry explorer — pipeline through help + export (Phases 5–6)."""
+"""Hebrew Stylometry Explorer — wizard shell with Google sign-in."""
 
 from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.data_step import data_step
-from dss_clustering.components.dendrogram_step import dendrogram_step
-from dss_clustering.components.features_step import features_step
-from dss_clustering.components.manual_cluster_step import manual_cluster_step
-from dss_clustering.components.plot_step import plot_step
-from dss_clustering.components.rescale_step import rescale_step
-from dss_clustering.components.saved_config_step import saved_config_step
-from dss_clustering.components.svd_step import svd_step
-from dss_clustering.components.tables_step import tables_step
-from dss_clustering.components.vectorize_step import vectorize_step
+from dss_clustering.components.help_page import help_page
+from dss_clustering.components.landing import landing_page
+from dss_clustering.components.layout import page_shell
+from dss_clustering.components.wizard import analysis_wizard
 from dss_clustering.models import (  # noqa: F401
     Document,
     LemmaRow,
     ManualCluster,
     User,
 )
+from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.data_state import DataState
 from dss_clustering.states.manual_cluster_state import ManualClusterState
+from dss_clustering.states.nav_state import (
+    TAB_ANALYSIS,
+    TAB_HELP,
+    TAB_HOME,
+    NavState,
+)
+
+
+def _main_body() -> rx.Component:
+    return rx.match(
+        NavState.main_tab,
+        (TAB_HOME, landing_page()),
+        (TAB_ANALYSIS, analysis_wizard()),
+        (TAB_HELP, help_page()),
+        landing_page(),
+    )
 
 
 def index() -> rx.Component:
-    # rx.container caps content at its Radix inner max-width (880px), which the
-    # wide dendrogram needs to escape.
     return rx.box(
-        rx.vstack(
-            rx.heading("Hebrew Stylometry Explorer", size="8"),
-            rx.text(
-                "Interactive lexical and morphological comparison of Mikra, Mishna, and DSS.",
-                color="gray",
-            ),
-            rx.divider(),
-            saved_config_step(),
-            rx.divider(),
-            data_step(),
-            rx.divider(),
-            features_step(),
-            rx.divider(),
-            vectorize_step(),
-            rx.divider(),
-            rescale_step(),
-            rx.divider(),
-            svd_step(),
-            rx.divider(),
-            plot_step(),
-            rx.divider(),
-            dendrogram_step(),
-            rx.divider(),
-            manual_cluster_step(),
-            rx.divider(),
-            tables_step(),
-            spacing="5",
-            padding_y="2em",
-            width="100%",
-            align="start",
-        ),
+        page_shell(_main_body()),
         width="100%",
-        max_width="100%",
-        padding_x="1.5rem",
-        on_mount=[DataState.load_documents, ManualClusterState.load_saved_groups],
+        # Both catalog loads are background events: a foreground
+        # ``load_documents`` used to sit on the event queue for ~7s (lemma-row
+        # aggregation), so Start analysis appeared to do nothing until it finished.
+        on_mount=[
+            DataState.load_documents,
+            ManualClusterState.load_saved_groups,
+            AuthState.ensure_synced,
+        ],
     )
 
 

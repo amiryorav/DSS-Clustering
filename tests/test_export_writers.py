@@ -6,8 +6,14 @@ import csv
 import io
 
 import scipy.sparse as sp
+from plotly.graph_objects import Figure
+from pypdf import PdfReader
 
-from dss_clustering.export.writers import write_count_matrix_csv, write_table
+from dss_clustering.export.writers import (
+    write_count_matrix_csv,
+    write_table,
+)
+from dss_clustering.styles import EXPORT_FOOTER
 
 
 ROWS = [
@@ -23,6 +29,12 @@ def test_write_csv_excel_pdf_roundtrip_bytes():
         assert len(data) > 10
         assert filename.endswith(suffix)
         assert "/" not in mime or mime.startswith("application/") or mime.startswith("text/")
+        if fmt == "pdf":
+            text = "\n".join(
+                page.extract_text() or ""
+                for page in PdfReader(io.BytesIO(data)).pages
+            )
+            assert EXPORT_FOOTER in text
 
 
 def test_write_raw_count_matrix_csv():
@@ -43,3 +55,13 @@ def test_write_raw_count_matrix_csv():
     ]
     assert filename.endswith(".csv")
     assert mime == "text/csv"
+
+
+def test_write_plot_image_embeds_footer_annotation():
+    fig = Figure()
+    fig.add_scatter(x=[0, 1], y=[0, 1])
+    from dss_clustering.export import writers as writers_mod
+
+    stamped = writers_mod._apply_plot_footer(fig)
+    texts = [str(ann["text"]) for ann in (stamped.layout.annotations or ())]
+    assert EXPORT_FOOTER in texts

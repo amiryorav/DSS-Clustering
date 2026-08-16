@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from plotly.graph_objects import Figure
+
+from dss_clustering.styles import EXPORT_FOOTER
 
 
 def _stamp() -> str:
@@ -17,6 +20,37 @@ def _stamp() -> str:
 def _safe_stem(stem: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in "-_" else "_" for c in stem.strip())
     return cleaned.strip("_") or "export"
+
+
+def _apply_plot_footer(fig: Figure) -> Figure:
+    """Stamp the branded footer onto a copy of the Plotly figure."""
+    stamped = deepcopy(fig)
+    annotations = list(stamped.layout.annotations or ())
+    annotations.append(
+        {
+            "text": EXPORT_FOOTER,
+            "xref": "paper",
+            "yref": "paper",
+            "x": 0.5,
+            "y": -0.08,
+            "showarrow": False,
+            "font": {"size": 11, "color": "#555555"},
+            "xanchor": "center",
+            "yanchor": "top",
+        }
+    )
+    margin = dict(stamped.layout.margin.to_plotly_json() if stamped.layout.margin else {})
+    margin["b"] = max(int(margin.get("b") or 0), 72)
+    stamped.update_layout(annotations=annotations, margin=margin)
+    return stamped
+
+
+def _pdf_footer(canvas, doc) -> None:  # noqa: ARG001
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColorRGB(0.35, 0.35, 0.35)
+    canvas.drawCentredString(doc.pagesize[0] / 2.0, 24, EXPORT_FOOTER)
+    canvas.restoreState()
 
 
 def write_csv(rows: Iterable[dict[str, Any]], stem: str) -> tuple[bytes, str, str]:
@@ -96,7 +130,11 @@ def write_pdf_table(
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        bottomMargin=48,
+    )
     styles = getSampleStyleSheet()
     story = [
         Paragraph(title, styles["Heading2"]),
@@ -124,7 +162,7 @@ def write_pdf_table(
         )
     )
     story.append(table)
-    doc.build(story)
+    doc.build(story, onFirstPage=_pdf_footer, onLaterPages=_pdf_footer)
     return buffer.getvalue(), f"{_safe_stem(stem)}_{_stamp()}.pdf", "application/pdf"
 
 
@@ -139,7 +177,8 @@ def write_plot_image(
     fmt = fmt.lower()
     if fmt not in ("png", "pdf"):
         raise ValueError(f"Unsupported plot format: {fmt}")
-    data = fig.to_image(format=fmt, width=width, height=height, scale=2)
+    stamped = _apply_plot_footer(fig)
+    data = stamped.to_image(format=fmt, width=width, height=height, scale=2)
     mime = "image/png" if fmt == "png" else "application/pdf"
     return data, f"{_safe_stem(stem)}_{_stamp()}.{fmt}", mime
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 
 import reflex as rx
@@ -49,6 +50,12 @@ class DataState(rx.State):
 
     # ---------- events ----------
 
+    @staticmethod
+    def _invalidate_matrix():
+        from dss_clustering.states.vectorize_state import VectorizeState
+
+        return VectorizeState.refresh_stale
+
     @rx.event
     def set_search_text(self, value: str):
         self.search_text = value
@@ -69,6 +76,7 @@ class DataState(rx.State):
             ]
         else:
             self.selected_document_ids = [*self.selected_document_ids, document_id]
+        return self._invalidate_matrix()
 
     @rx.event
     def toggle_corpus_visible(self, corpus: str):
@@ -85,6 +93,7 @@ class DataState(rx.State):
             ]
         else:
             self.selected_document_ids = sorted(selected | set(ids))
+        return self._invalidate_matrix()
 
     @rx.event
     def select_all_visible(self):
@@ -94,44 +103,38 @@ class DataState(rx.State):
             for doc in docs
         ]
         self.selected_document_ids = sorted(set(self.selected_document_ids) | set(ids))
+        return self._invalidate_matrix()
 
     @rx.event
     def clear_selection(self):
         self.selected_document_ids = []
+        return self._invalidate_matrix()
 
-    @rx.event
-    async def load_documents(self):
-        """Load documents eligible under the current original-script rules."""
-        self.is_loading = True
-        self.status_message = "Loading documents..."
-        try:
-            # lemma.py applies the >=100 threshold after removing blank lemmas;
-            # morphological.py applies it to all NNN rows.
-            from dss_clustering.states.feature_state import FeatureState, MODE_LEMMA
-
-            features = await self.get_state(FeatureState)
-            lemma_mode = features.mode == MODE_LEMMA
-
-            with rx.session() as session:
-                statement = (
-                    select(
-                        Document.id,
-                        Document.book,
-                        Document.corpus,
-                        Document.display_name,
-                        func.count(LemmaRow.id),
-                    )
-                    .join(LemmaRow, LemmaRow.document_id == Document.id)
-                    .where(LemmaRow.row_type == VALID_ROW_TYPE)
+    @staticmethod
+    def _fetch_document_rows(*, lemma_mode: bool) -> list[tuple]:
+        """Run the catalog aggregation off the event loop when possible."""
+        with rx.session() as session:
+            statement = (
+                select(
+                    Document.id,
+                    Document.book,
+                    Document.corpus,
+                    Document.display_name,
+                    func.count(LemmaRow.id),
                 )
-                if lemma_mode:
-                    cleaned_lemma = func.trim(LemmaRow.clean_lemma)
-                    statement = (
-                        statement.where(LemmaRow.clean_lemma.is_not(None))
-                        .where(cleaned_lemma != "")
-                        .where(func.lower(cleaned_lemma) != "nan")
-                    )
-                rows = session.exec(
+                .join(LemmaRow, LemmaRow.document_id == Document.id)
+                .where(LemmaRow.row_type == VALID_ROW_TYPE)
+            )
+            if lemma_mode:
+                # lemma.py applies the >=100 threshold after removing blank lemmas.
+                cleaned_lemma = func.trim(LemmaRow.clean_lemma)
+                statement = (
+                    statement.where(LemmaRow.clean_lemma.is_not(None))
+                    .where(cleaned_lemma != "")
+                    .where(func.lower(cleaned_lemma) != "nan")
+                )
+            return list(
+                session.exec(
                     statement.group_by(
                         Document.id,
                         Document.book,
@@ -139,6 +142,28 @@ class DataState(rx.State):
                         Document.display_name,
                     ).order_by(Document.corpus, Document.book)
                 ).all()
+            )
+
+    @rx.event(background=True)
+    async def load_documents(self):
+        """Load documents eligible under the current original-script rules.
+
+        Runs in the background so Home → Start analysis is not queued behind the
+        multi-second lemma-row aggregation that builds the book catalog.
+        """
+        async with self:
+            from dss_clustering.states.feature_state import FeatureState, MODE_LEMMA
+
+            features = await self.get_state(FeatureState)
+            lemma_mode = features.mode == MODE_LEMMA
+            min_entries = self.min_entries_per_book
+            self.is_loading = True
+            self.status_message = "Loading documents..."
+
+        try:
+            rows = await asyncio.to_thread(
+                DataState._fetch_document_rows, lemma_mode=lemma_mode
+            )
 
             by_corpus: dict[str, list[dict]] = defaultdict(list)
             labels: dict[str, str] = {}
@@ -146,7 +171,7 @@ class DataState(rx.State):
             corpus_of: dict[str, str] = {}
 
             for doc_id, book, corpus, display_name, n in rows:
-                if n < self.min_entries_per_book:
+                if n < min_entries:
                     continue
                 label = (display_name or "").strip() or book
                 by_corpus[corpus].append(
@@ -166,28 +191,28 @@ class DataState(rx.State):
 
             ordered = [c for c in CORPUS_ORDER if c in by_corpus]
             ordered += sorted(c for c in by_corpus if c not in CORPUS_ORDER)
-
-            self.corpora = ordered
-            self.documents_by_corpus = dict(by_corpus)
-            self.document_labels = labels
-            self.document_books = books
-            self.document_corpus = corpus_of
-
-            eligible = set(labels)
-            self.selected_document_ids = [
-                i for i in self.selected_document_ids if str(i) in eligible
-            ]
-
             total = sum(len(v) for v in by_corpus.values())
-            self.status_message = (
-                f"Loaded {total} books/scrolls "
-                f"(min {'non-empty lemma' if lemma_mode else 'valid'} rows "
-                f">= {self.min_entries_per_book})."
-            )
+
+            async with self:
+                self.corpora = ordered
+                self.documents_by_corpus = dict(by_corpus)
+                self.document_labels = labels
+                self.document_books = books
+                self.document_corpus = corpus_of
+                eligible = set(labels)
+                self.selected_document_ids = [
+                    i for i in self.selected_document_ids if str(i) in eligible
+                ]
+                self.status_message = (
+                    f"Loaded {total} books/scrolls "
+                    f"(min {'non-empty lemma' if lemma_mode else 'valid'} rows "
+                    f">= {min_entries})."
+                )
+                self.is_loading = False
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
-            self.status_message = f"Failed to load documents: {exc}"
-        finally:
-            self.is_loading = False
+            async with self:
+                self.status_message = f"Failed to load documents: {exc}"
+                self.is_loading = False
 
     # ---------- helpers ----------
 

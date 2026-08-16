@@ -29,6 +29,7 @@ from dss_clustering.pipeline.runtime import (
 from dss_clustering.pipeline.metrics import (
     ward_artifact_document_ids as find_ward_artifact_document_ids,
 )
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import FALLBACK_COLOR, DataState
 from dss_clustering.states.svd_state import SVDState
 
@@ -39,6 +40,8 @@ class DendrogramState(rx.State):
     linkage_method: str = LINKAGE_WARD
     distance_metric: str = METRIC_EUCLIDEAN
     cut_height: float = 1.0
+    # Slider position while dragging; only committed on release.
+    cut_height_draft: float = 1.0
     max_height: float = 1.0
 
     is_running: bool = False
@@ -93,15 +96,33 @@ class DendrogramState(rx.State):
             self.distance_metric = value
             return DendrogramState.refit
 
-    @rx.event
-    def set_cut_height(self, value: list[float | int] | float | int | str):
-        """Slider may pass a list; cut-height only recolors (no Z refit)."""
+    def _clamp_height(
+        self, value: list[float | int] | float | int | str
+    ) -> float | None:
         raw = value[0] if isinstance(value, list) else value
         try:
             h = float(raw)
         except (TypeError, ValueError):
+            return None
+        return max(0.0, min(h, self.max_height))
+
+    @rx.event
+    def set_cut_height_draft(self, value: list[float | int] | float | int | str):
+        """Track the thumb while dragging without touching the clustering."""
+        h = self._clamp_height(value)
+        if h is not None:
+            self.cut_height_draft = h
+
+    @rx.event
+    def set_cut_height(self, value: list[float | int] | float | int | str):
+        """Slider release: cut-height only recolors (no Z refit)."""
+        h = self._clamp_height(value)
+        if h is None:
             return
-        self.cut_height = max(0.0, min(h, self.max_height))
+        self.cut_height_draft = h
+        if h == self.cut_height:
+            return
+        self.cut_height = h
         return DendrogramState.recolor
 
     @rx.event
@@ -138,8 +159,13 @@ class DendrogramState(rx.State):
             self.status_message = "Need at least 2 books for a dendrogram."
             return
 
+        busy = await self.get_state(BusyState)
+        busy.begin("Fitting hierarchical clustering…")
         self.is_running = True
         self.status_message = "Fitting hierarchical clustering…"
+        # Flush before the blocking scipy call so the overlay is already up.
+        yield
+
         try:
             method = self.linkage_method
             metric = (
@@ -175,11 +201,13 @@ class DendrogramState(rx.State):
                 self.cut_height = default_cut_height(Z)
             else:
                 self.cut_height = min(self.cut_height, self.max_height)
+            self.cut_height_draft = self.cut_height
 
             self.has_tree = True
             self.n_documents = len(emb.document_ids)
             self.is_running = False
-            return DendrogramState.recolor
+            yield DendrogramState.recolor
+            yield BusyState.release
         except Exception as exc:  # noqa: BLE001
             clear_dendrogram(token)
             self.has_tree = False
@@ -190,6 +218,7 @@ class DendrogramState(rx.State):
             self.ward_artifact_document_ids = []
             self.status_message = f"Dendrogram failed: {exc}"
             self.is_running = False
+            busy.end()
 
     @rx.event
     def on_leaf_click(self, event_data):
@@ -218,17 +247,27 @@ class DendrogramState(rx.State):
     @rx.event
     async def recolor(self):
         """Apply cut height via fcluster and redraw — does not refit Z."""
-        if not await self._redraw():
+        busy = await self.get_state(BusyState)
+        busy.begin("Recomputing clusters…")
+        yield
+
+        try:
+            drawn = await self._redraw()
+        except Exception:
+            busy.end()
+            raise
+        if not drawn:
+            busy.end()
             return
+
         from dss_clustering.states.plot_state import PlotState
         from dss_clustering.states.table_state import TableState
         from dss_clustering.states.manual_cluster_state import ManualClusterState
 
-        return [
-            PlotState.recompute,
-            TableState.recompute,
-            ManualClusterState.refresh_comparison_options,
-        ]
+        yield PlotState.recompute
+        yield TableState.recompute
+        yield ManualClusterState.refresh_comparison_options
+        yield BusyState.release
 
     @rx.event
     async def refresh_colors(self):

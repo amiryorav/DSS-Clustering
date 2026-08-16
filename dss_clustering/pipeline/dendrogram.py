@@ -12,7 +12,7 @@ import numpy as np
 import plotly.graph_objects as go
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage
 
-from dss_clustering.colors import COLOR_PALETTE
+from dss_clustering.colors import CLUSTER_PALETTE
 
 LINKAGE_WARD = "ward"
 LINKAGE_AVERAGE = "average"
@@ -32,11 +32,31 @@ def figure_min_width(n_leaves: int) -> int:
     return max(320, n_leaves * PX_PER_LEAF + 80)
 
 
+def _shade(hex_color: str, factor: float) -> str:
+    """Lighten (factor > 1) or darken (factor < 1) a #rrggbb color."""
+    r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    scaled = (min(255, max(0, int(round(channel * factor)))) for channel in (r, g, b))
+    return "#" + "".join(f"{channel:02X}" for channel in scaled)
+
+
 def cluster_palette(n: int) -> list[str]:
-    """Stable repeating palette for cluster ids 1..n."""
+    """Stable palette for cluster ids 1..n, kept distinguishable side by side.
+
+    Cuts often produce more clusters than the base palette has entries, so
+    additional passes reuse the hues at a different brightness rather than
+    repeating an identical color.
+    """
     if n <= 0:
         return []
-    return [COLOR_PALETTE[i % len(COLOR_PALETTE)] for i in range(n)]
+    base = CLUSTER_PALETTE
+    # Darker then lighter, so a reused hue still reads as a different cluster.
+    shades = (1.0, 0.62, 1.38, 0.8, 1.18)
+    colors: list[str] = []
+    for i in range(n):
+        hue = base[i % len(base)]
+        factor = shades[(i // len(base)) % len(shades)]
+        colors.append(hue if factor == 1.0 else _shade(hue, factor))
+    return colors
 
 
 def fit_linkage(

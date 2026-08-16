@@ -12,6 +12,7 @@ from dss_clustering.pipeline.aggregate import (
     signature_count_query,
 )
 from dss_clustering.pipeline.runtime import MatrixBundle, clear_bundle, put_bundle
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import VALID_ROW_TYPE, DataState
 from dss_clustering.states.feature_state import FeatureState
 
@@ -52,6 +53,13 @@ class VectorizeState(rx.State):
 
     def _client_token(self) -> str:
         return self.router.session.client_token
+
+    @rx.var(cache=True)
+    def max_svd_components(self) -> int:
+        """SVD ceiling for the built matrix — usually the book count minus one."""
+        if not self.has_matrix:
+            return 0
+        return max(0, min(self.n_documents, self.n_signatures) - 1)
 
     @rx.event
     async def refresh_stale(self):
@@ -94,6 +102,8 @@ class VectorizeState(rx.State):
                 self.is_stale = True
                 return
 
+            busy = await self.get_state(BusyState)
+            busy.begin("Building the count matrix…")
             self.is_running = True
             self.progress_message = (
                 f"Aggregating signature counts for {len(doc_ids)} books…"
@@ -137,6 +147,7 @@ class VectorizeState(rx.State):
                     )
                     self.progress_message = ""
                     self.is_running = False
+                    (await self.get_state(BusyState)).end()
                 return
 
             matrix, out_doc_ids, signatures, n_source = count_matrix_from_groups(
@@ -185,7 +196,9 @@ class VectorizeState(rx.State):
                 self.is_running = False
                 from dss_clustering.states.rescale_state import RescaleState
 
-                return RescaleState.apply
+                # Release last so the overlay stays up for the whole
+                # rescale → SVD → dendrogram chain.
+                return [RescaleState.apply, BusyState.release]
         except Exception as exc:  # noqa: BLE001 — surfaced in UI
             async with self:
                 clear_bundle(token)
@@ -194,3 +207,4 @@ class VectorizeState(rx.State):
                 self.status_message = f"Vectorize failed: {exc}"
                 self.progress_message = ""
                 self.is_running = False
+                (await self.get_state(BusyState)).end()

@@ -23,7 +23,7 @@ def _stat_chip(label: str, value) -> rx.Component:
 def vectorize_step() -> rx.Component:
     """Vectorize: automatic count-matrix build with status only."""
     return rx.vstack(
-        step_header("3. Vectorize", "vectorize"),
+        step_header("Vectorize", "vectorize"),
         help_panel("vectorize"),
         rx.text(
             "Build the book × signature count matrix from the selected books "
@@ -31,6 +31,19 @@ def vectorize_step() -> rx.Component:
             color="gray",
         ),
         busy_banner(VectorizeState.is_running, VectorizeState.progress_message),
+        rx.cond(
+            VectorizeState.is_stale,
+            rx.callout.root(
+                rx.callout.icon(rx.icon("triangle-alert")),
+                rx.callout.text(
+                    "Books or feature settings changed since the last build. "
+                    "Rebuild the count matrix before continuing — the later "
+                    "steps refuse to run on a stale matrix.",
+                ),
+                color_scheme="amber",
+                width="100%",
+            ),
+        ),
         rx.hstack(
             rx.button(
                 "Build count matrix",
@@ -90,4 +103,6 @@ def vectorize_step() -> rx.Component:
         spacing="4",
         width="100%",
         align="start",
+        # Catch selection / feature edits made before landing on this step.
+        on_mount=VectorizeState.refresh_stale,
     )

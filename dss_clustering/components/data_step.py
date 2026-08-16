@@ -55,7 +55,7 @@ def _corpus_section(corpus: str) -> rx.Component:
 def data_step() -> rx.Component:
     """Data step panel: search, threshold, and book selection."""
     return rx.vstack(
-        step_header("1. Data", "data"),
+        step_header("Data", "data"),
         help_panel("data"),
         rx.text(
             "Choose which books and scrolls to include. "
@@ -105,6 +105,15 @@ def data_step() -> rx.Component:
             width="100%",
         ),
         rx.text(DataState.status_message, size="2", color="gray"),
+        rx.cond(
+            DataState.is_loading,
+            rx.hstack(
+                rx.spinner(size="2"),
+                rx.text("Loading book catalog…", size="2", color="gray"),
+                spacing="2",
+                align="center",
+            ),
+        ),
         rx.hstack(
             rx.text("Selected:", weight="bold"),
             rx.text(DataState.selected_count),

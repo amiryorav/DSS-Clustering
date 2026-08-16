@@ -65,9 +65,20 @@ class ManualClusterState(rx.State):
         return len(self.picked_document_ids)
 
     @rx.var(cache=True)
-    def picked_chip_rows(self) -> list[dict]:
-        """Chip labels use the raw document id; names appear in status after Done."""
-        return [{"id": i, "label": str(i)} for i in self.picked_document_ids]
+    async def picked_chip_rows(self) -> list[dict]:
+        """Chips show the book name, falling back to the id if it is unknown."""
+        data = await self.get_state(DataState)
+        rows = []
+        for document_id in self.picked_document_ids:
+            key = str(document_id)
+            rows.append(
+                {
+                    "id": document_id,
+                    "label": data.document_books.get(key)
+                    or data.document_labels.get(key, key),
+                }
+            )
+        return rows
 
     @rx.event
     def start_picking(self):
@@ -268,10 +279,19 @@ class ManualClusterState(rx.State):
             self.has_results = False
             self.status_message = f"Manual compare failed: {exc}"
 
+    async def _owner_user_id(self) -> int:
+        """Prefer the Google-linked user id when signed in."""
+        from dss_clustering.states.auth_state import AuthState
+
+        auth = await self.get_state(AuthState)
+        if auth.current_user_id:
+            return int(auth.current_user_id)
+        user = await self.get_state(UserState)
+        return await user.ensure_user_id()
+
     async def reload_saved_groups(self) -> None:
         """Refresh the saved-cluster list for the signed-in / local user."""
-        user = await self.get_state(UserState)
-        user_id = await user.ensure_user_id()
+        user_id = await self._owner_user_id()
         if not user_id:
             self.saved_groups = []
             return
@@ -281,9 +301,11 @@ class ManualClusterState(rx.State):
             self.saved_groups = []
             self.status_message = f"Could not load saved clusters: {exc}"
 
-    @rx.event
+    @rx.event(background=True)
     async def load_saved_groups(self):
-        await self.reload_saved_groups()
+        """Background so page mount does not block Start analysis."""
+        async with self:
+            await self.reload_saved_groups()
 
     @rx.event
     async def save_group(self):
@@ -295,8 +317,7 @@ class ManualClusterState(rx.State):
             self.status_message = "Nothing to save — pick books first."
             return
 
-        user = await self.get_state(UserState)
-        user_id = await user.ensure_user_id()
+        user_id = await self._owner_user_id()
         if not user_id:
             self.status_message = (
                 "Could not resolve a user id, so the cluster was not saved."
@@ -324,8 +345,7 @@ class ManualClusterState(rx.State):
 
     @rx.event
     async def delete_group(self, group_id: int):
-        user = await self.get_state(UserState)
-        user_id = await user.ensure_user_id()
+        user_id = await self._owner_user_id()
         if not user_id:
             return
         try:

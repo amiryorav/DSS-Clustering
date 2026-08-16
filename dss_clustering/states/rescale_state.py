@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.pipeline.runtime import get_bundle
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.vectorize_state import VectorizeState
 
 RESCALE_RAW = "raw"
@@ -29,6 +30,9 @@ class RescaleState(rx.State):
 
     @rx.event
     async def apply(self):
+        busy = await self.get_state(BusyState)
+        busy.begin("Applying weighting…")
+        yield
         vectorize = await self.get_state(VectorizeState)
         if not vectorize.has_matrix or vectorize.is_stale:
             self.applied = False
@@ -36,6 +40,7 @@ class RescaleState(rx.State):
             self.status_message = (
                 "Count matrix missing or stale — rebuild Vectorize first."
             )
+            busy.end()
             return
 
         bundle = get_bundle(vectorize.router.session.client_token)
@@ -46,6 +51,7 @@ class RescaleState(rx.State):
             self.applied = False
             self.n_nnz = 0
             self.status_message = "Count matrix not found in server memory — rebuild."
+            busy.end()
             return
 
         try:
@@ -64,8 +70,10 @@ class RescaleState(rx.State):
             )
             from dss_clustering.states.svd_state import SVDState
 
-            return SVDState.run
+            yield SVDState.run
+            yield BusyState.release
         except Exception as exc:  # noqa: BLE001
             self.applied = False
             self.n_nnz = 0
             self.status_message = f"Rescale failed: {exc}"
+            busy.end()

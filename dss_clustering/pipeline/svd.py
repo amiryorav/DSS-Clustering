@@ -112,6 +112,11 @@ def run_svd_sweep(
     hi = max(lo, int(sweep_max))
     step = max(1, int(sweep_step))
     sizes = [n for n in range(lo, hi + 1, step) if n <= max_n]
+    # A requested range wider than the matrix allows would otherwise stop at the
+    # last multiple of ``step`` below ``max_n``, leaving the usable top of the
+    # range unexplored (e.g. 38 books, 10..200/10 tried only 10, 20, 30).
+    if max_n <= hi and max_n not in sizes:
+        sizes.append(max_n)
     if not sizes:
         sizes = [max_n]
 

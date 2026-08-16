@@ -25,23 +25,49 @@ def feature_grid(
     grid_id: str,
     title: str,
     rows,
-    height: str = "280px",
+    height: str = "640px",
     help_key: str | None = None,
+    subtitle=None,
     export_source: str | None = None,
     export_kind: str | None = None,
 ) -> rx.Component:
-    """Scrollable feature table (top / distinctive / gap)."""
+    """Scrollable feature table (top / distinctive / gap).
+
+    ``title`` stays short and single-line so the three grids in a row line up.
+    ``subtitle`` carries the (possibly long) comparison detail in a fixed-height
+    box, which keeps every table starting at the same vertical offset even when
+    one caption wraps to two lines and another does not.
+    """
     title_row = (
         rx.hstack(
-            rx.text(title, size="3", weight="bold"),
+            rx.text(title, size="3", weight="bold", white_space="nowrap"),
             help_button(help_key),
             spacing="1",
             align="center",
         )
         if help_key
-        else rx.text(title, size="3", weight="bold")
+        else rx.text(title, size="3", weight="bold", white_space="nowrap")
     )
     children: list[rx.Component] = [title_row]
+    if subtitle is not None:
+        children.append(
+            rx.box(
+                rx.text(
+                    subtitle,
+                    size="1",
+                    color="gray",
+                    style={
+                        "display": "-webkit-box",
+                        "-webkit-line-clamp": "2",
+                        "-webkit-box-orient": "vertical",
+                        "overflow": "hidden",
+                    },
+                ),
+                width="100%",
+                height="2.4rem",
+                overflow="hidden",
+            )
+        )
     if help_key:
         children.append(help_panel(help_key))
     if export_source and export_kind:

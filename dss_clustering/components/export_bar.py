@@ -37,16 +37,16 @@ def table_export_bar(source: str, kind: str) -> rx.Component:
 
 def plot_export_bar(*, kind: str) -> rx.Component:
     """PNG / PDF buttons for a Plotly figure panel."""
-    on_png = (
-        ExportState.export_plot("png")
-        if kind == "plot"
-        else ExportState.export_dendrogram("png")
-    )
-    on_pdf = (
-        ExportState.export_plot("pdf")
-        if kind == "plot"
-        else ExportState.export_dendrogram("pdf")
-    )
+    if kind == "plot":
+        # The 3D camera lives only in the browser; grab it per export instead of
+        # streaming relayout events, which forced a full WebGL redraw per frame.
+        from dss_clustering.states.plot_state import PlotState
+
+        on_png = PlotState.export_with_camera("png")
+        on_pdf = PlotState.export_with_camera("pdf")
+    else:
+        on_png = ExportState.export_dendrogram("png")
+        on_pdf = ExportState.export_dendrogram("pdf")
     return rx.hstack(
         rx.text("Export", size="1", color="gray"),
         rx.button("PNG", size="1", variant="soft", on_click=on_png),

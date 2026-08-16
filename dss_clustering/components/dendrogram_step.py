@@ -19,7 +19,7 @@ from dss_clustering.states.export_state import ExportState
 def dendrogram_step() -> rx.Component:
     """Hierarchical clustering tree with live cut-height."""
     return rx.vstack(
-        step_header("7. Dendrogram", "dendrogram"),
+        step_header("Dendrogram", "dendrogram"),
         help_panel("dendrogram"),
         rx.text(
             "Hierarchical clustering on the SVD analysis embedding. "
@@ -102,7 +102,11 @@ def dendrogram_step() -> rx.Component:
                 rx.hstack(
                     rx.text("Cut height", size="2", white_space="nowrap"),
                     rx.slider(
-                        value=[DendrogramState.cut_height],
+                        # Uncontrolled so the thumb tracks the pointer at
+                        # 60fps; `key` resyncs it when a refit moves the cut.
+                        default_value=[DendrogramState.cut_height],
+                        key=DendrogramState.cut_height.to(str),
+                        on_change=DendrogramState.set_cut_height_draft.throttle(80),
                         on_value_commit=DendrogramState.set_cut_height,
                         min=0.0,
                         max=DendrogramState.max_height,
@@ -110,7 +114,7 @@ def dendrogram_step() -> rx.Component:
                         width="100%",
                     ),
                     rx.text(
-                        DendrogramState.cut_height,
+                        DendrogramState.cut_height_draft,
                         size="2",
                         color="gray",
                         min_width="4rem",

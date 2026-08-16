@@ -99,7 +99,7 @@ def _ignore_proper_names_toggle() -> rx.Component:
 def features_step() -> rx.Component:
     """Features step: lemma vs morphology + ignore proper-name."""
     return rx.vstack(
-        step_header("2. Features", "features"),
+        step_header("Features", "features"),
         help_panel("features"),
         rx.text(
             "Choose the analytical basis for the rest of the pipeline. "

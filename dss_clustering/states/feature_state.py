@@ -17,8 +17,16 @@ class FeatureState(rx.State):
     morph_columns: list[str] = list(MORPH_COLUMNS)
     # Default to all morph attrs so morphology mode is usable immediately.
     selected_morph_columns: list[str] = list(MORPH_COLUMNS)
-    # When True, rows with subtype=properName are excluded from the experiment.
-    ignore_proper_names: bool = True
+    # When True, rows with subtype=properName are excluded from the experiment;
+    # off by default so they collapse to subtype=properName like morphological.py.
+    ignore_proper_names: bool = False
+
+    @staticmethod
+    def _invalidate_matrix():
+        """Any feature change makes the built count matrix stale."""
+        from dss_clustering.states.vectorize_state import VectorizeState
+
+        return VectorizeState.refresh_stale
 
     @rx.event
     async def set_mode(self, mode: str | list[str]):
@@ -36,7 +44,7 @@ class FeatureState(rx.State):
             svd.plateau_min = 70 if value == MODE_LEMMA else 50
             dendro = await self.get_state(DendrogramState)
             dendro.mark_ward_artifacts = value == MODE_MORPHOLOGY
-            return DataState.load_documents
+            return [DataState.load_documents, self._invalidate_matrix()]
 
     @rx.event
     def toggle_morph_column(self, column: str):
@@ -52,18 +60,22 @@ class FeatureState(rx.State):
             self.selected_morph_columns = [
                 c for c in self.morph_columns if c in selected
             ]
+        return self._invalidate_matrix()
 
     @rx.event
     def select_all_morph_columns(self):
         self.selected_morph_columns = list(self.morph_columns)
+        return self._invalidate_matrix()
 
     @rx.event
     def clear_morph_columns(self):
         self.selected_morph_columns = []
+        return self._invalidate_matrix()
 
     @rx.event
     def set_ignore_proper_names(self, value: bool):
         self.ignore_proper_names = value
+        return self._invalidate_matrix()
 
     @rx.var(cache=True)
     def active_columns(self) -> list[str]:

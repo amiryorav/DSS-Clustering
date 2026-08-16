@@ -95,9 +95,14 @@ class ExportState(rx.State):
         # not. Give each leaf the same horizontal room it receives on screen.
         width = max(1600, figure_min_width(dendro.n_documents))
         height = max(900, int(dendro.figure.layout.height or 800))
-        return self._download_figure(
+        download = self._download_figure(
             dendro.figure, "dendrogram", fmt, width=width, height=height
         )
+        # The browser download is sufficient feedback; avoid leaving a noisy
+        # timestamped "Downloading …" line under the chart.
+        if not self.status_message.startswith("Plot export failed:"):
+            self.status_message = ""
+        return download
 
     def _download_figure(
         self,

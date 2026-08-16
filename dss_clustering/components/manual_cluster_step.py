@@ -71,7 +71,7 @@ def _comparison_member(row: dict) -> rx.Component:
 def manual_cluster_step() -> rx.Component:
     """Click-to-select books and compare against a reference group."""
     return rx.vstack(
-        step_header("8. Manual cluster", "manual_cluster"),
+        step_header("Manual group", "manual_cluster"),
         help_panel("manual_cluster"),
         rx.text(
             "Click a book on the 3D plot to start a new group directly, or use "
@@ -183,7 +183,7 @@ def manual_cluster_step() -> rx.Component:
         ),
         rx.vstack(
             rx.hstack(
-                rx.text("Your saved clusters", size="2", weight="bold"),
+                rx.text("Your saved groups", size="2", weight="bold"),
                 rx.button(
                     "Refresh",
                     size="1",
@@ -201,7 +201,7 @@ def manual_cluster_step() -> rx.Component:
                     spacing="2",
                 ),
                 rx.text(
-                    "No saved clusters yet. Saved clusters are stored under your "
+                    "No saved groups yet. Saved groups are stored under your "
                     "user id and can be picked as X or Y in the data tables.",
                     size="1",
                     color="gray",

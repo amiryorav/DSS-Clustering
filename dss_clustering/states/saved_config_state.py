@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import reflex as rx
 
 from dss_clustering.pipeline.config import AnalysisConfig
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import DataState
 from dss_clustering.states.dendrogram_state import DendrogramState
 from dss_clustering.states.feature_state import (
@@ -56,7 +57,13 @@ class SavedConfigState(rx.State):
             return
         config = AnalysisConfig.from_dict(match["config"])
         self.status_message = f"Loading '{match['name']}'…"
-        return SavedConfigState.apply_config(config.to_dict())
+        # Applying a preset reruns the whole pipeline, so block the UI up front
+        # and let the last chained step release it.
+        busy = await self.get_state(BusyState)
+        busy.begin(f"Loading preset '{match['name']}'…")
+        yield
+        yield SavedConfigState.apply_config(config.to_dict())
+        yield BusyState.release
 
     @rx.event
     async def apply_config(self, config_dict: dict):

@@ -51,6 +51,62 @@ def get_or_create_local_user(local_key: str) -> int:
         return int(user.id or 0)
 
 
+def claim_or_create_google_user(
+    *,
+    google_sub: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    local_key: str | None = None,
+) -> int:
+    """Upsert a Google identity, preferring to claim the current local user row.
+
+    If ``google_sub`` already exists, that row wins. Otherwise, if ``local_key``
+    points at a user without a Google subject, that row is claimed so saved
+    manual clusters stay attached. Otherwise a new user row is created.
+    """
+    sub = google_sub.strip()
+    if not sub:
+        raise ValueError("google_sub is required.")
+    key = (local_key or "").strip() or None
+    now = _utcnow()
+    with rx.session() as session:
+        by_sub = session.exec(select(User).where(User.google_sub == sub)).first()
+        if by_sub is not None:
+            by_sub.email = email or by_sub.email
+            by_sub.display_name = display_name or by_sub.display_name
+            by_sub.last_seen_at = now
+            session.add(by_sub)
+            session.commit()
+            session.refresh(by_sub)
+            return int(by_sub.id or 0)
+
+        local = None
+        if key:
+            local = session.exec(select(User).where(User.local_key == key)).first()
+        if local is not None and not local.google_sub:
+            local.google_sub = sub
+            local.email = email or local.email
+            local.display_name = display_name or local.display_name
+            local.last_seen_at = now
+            session.add(local)
+            session.commit()
+            session.refresh(local)
+            return int(local.id or 0)
+
+        user = User(
+            google_sub=sub,
+            local_key=key if local is None else None,
+            email=email,
+            display_name=display_name,
+            created_at=now,
+            last_seen_at=now,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return int(user.id or 0)
+
+
 def list_manual_clusters(user_id: int) -> list[dict]:
     if not user_id:
         return []

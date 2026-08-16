@@ -31,6 +31,7 @@ from dss_clustering.pipeline.metrics import (
     ward_merge_height,
 )
 from dss_clustering.pipeline.runtime import get_bundle, get_dendrogram, get_embedding
+from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import CORPUS_LABELS, CORPUS_ORDER, DataState
 from dss_clustering.states.dendrogram_state import DendrogramState
 from dss_clustering.states.rescale_state import RescaleState
@@ -66,7 +67,7 @@ class TableState(rx.State):
     show_purity: bool = False
     show_consistency: bool = False
     has_tables: bool = False
-    status_message: str = "Run SVD / dendrogram, then choose X and Y."
+    status_message: str = "Run SVD / dendrogram, then choose a subject and reference."
 
     def _token(self) -> str:
         return self.router.session.client_token
@@ -132,12 +133,40 @@ class TableState(rx.State):
         return f"{100.0 * self.corpus_wide_stability:.1f}%"
 
     @rx.var(cache=True)
-    def distinctive_title(self) -> str:
-        return "Distinctive in X (X > Y)"
+    def distinctive_subtitle(self) -> str:
+        return f"{self.x_display_label} > {self.y_display_label}"
 
     @rx.var(cache=True)
-    def gap_title(self) -> str:
-        return "Gap in X (Y > X)"
+    def gap_subtitle(self) -> str:
+        return f"{self.y_display_label} > {self.x_display_label}"
+
+    @staticmethod
+    def _display_side(kind: str, label: str) -> str:
+        if kind == SCOPE_CORPUS:
+            return (
+                "Entire selected corpus"
+                if label == CORPUS_ALL_LABEL
+                else f"Corpus {label}"
+            )
+        if kind == SCOPE_CLUSTER:
+            return label if label.startswith("Cluster ") else f"Cluster {label}"
+        if kind == SCOPE_MANUAL:
+            return f"Manual Group {label}"
+        if kind == SCOPE_BOOK:
+            return f"Book {label}"
+        return label
+
+    @rx.var(cache=True)
+    def x_display_label(self) -> str:
+        return self._display_side(self.x_kind, self.x_label)
+
+    @rx.var(cache=True)
+    def y_display_label(self) -> str:
+        return self._display_side(self.y_kind, self.y_label)
+
+    @rx.var(cache=True)
+    def top_subtitle(self) -> str:
+        return f"in {self.x_display_label}"
 
     @rx.var(cache=True)
     def export_slug(self) -> str:
@@ -212,8 +241,8 @@ class TableState(rx.State):
     def _no_options_message(kind: str, side: str) -> str:
         if kind == SCOPE_MANUAL:
             return (
-                f"No saved manual clusters to use as {side}. Pick books in the "
-                "manual cluster step and save them first."
+                f"No saved manual groups to use as {side}. Pick books in the "
+                "manual group step and save them first."
             )
         if kind == SCOPE_CLUSTER:
             return f"No dendrogram clusters available for {side}."
@@ -249,6 +278,15 @@ class TableState(rx.State):
 
     @rx.event
     async def recompute(self):
+        busy = await self.get_state(BusyState)
+        busy.begin("Computing comparison tables…")
+        yield
+        try:
+            await self._recompute()
+        finally:
+            busy.end()
+
+    async def _recompute(self):
         data = await self.get_state(DataState)
         rescale = await self.get_state(RescaleState)
         dendro = await self.get_state(DendrogramState)
@@ -281,7 +319,7 @@ class TableState(rx.State):
         if not self.x_options:
             self.x_member_rows = []
             self.y_member_rows = []
-            self._reset_tables(self._no_options_message(self.x_kind, "X"))
+            self._reset_tables(self._no_options_message(self.x_kind, "the subject"))
             return
 
         document_corpus = {int(k): v for k, v in data.document_corpus.items()}
@@ -315,7 +353,9 @@ class TableState(rx.State):
         self.y_member_rows = self._member_rows(y_group, data, document_corpus)
 
         if not x_group:
-            self._reset_tables(f"X ({self.x_label}) has no books in the selection.")
+            self._reset_tables(
+                f"{self.x_display_label} has no books in the selection."
+            )
             return
 
         try:
@@ -396,24 +436,28 @@ class TableState(rx.State):
             self.has_tables = True
             if not y_group:
                 reason = (
-                    self._no_options_message(self.y_kind, "Y")
+                    self._no_options_message(self.y_kind, "the reference")
                     if not self.y_options
                     else (
-                        "Y is empty once the books it shares with X are removed."
+                        "The reference is empty once books shared with the subject "
+                        "are removed."
                         if y_all
-                        else "Y has no books in the selection."
+                        else "The reference has no books in the selection."
                     )
                 )
                 self.status_message = (
-                    f"{self.x_label}: {len(x_group)} books. {reason} "
+                    f"{self.x_display_label}: {len(x_group)} books. {reason} "
                     "Only the top-feature table is available."
                 )
             else:
                 overlap_note = (
-                    f" ({overlap} shared book(s) excluded from Y)" if overlap else ""
+                    f" ({overlap} shared book(s) excluded from the reference)"
+                    if overlap
+                    else ""
                 )
                 self.status_message = (
-                    f"{self.x_label} ({len(x_group)} books) vs {self.y_label} "
+                    f"{self.x_display_label} ({len(x_group)} books) vs "
+                    f"{self.y_display_label} "
                     f"({len(y_group)} books){overlap_note}; "
                     f"stability {100.0 * self.corpus_wide_stability:.1f}%."
                 )

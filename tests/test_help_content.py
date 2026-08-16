@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dss_clustering.help_content import HELP_CONTENT, help_entry
+from dss_clustering.help_content import HELP_CONTENT, help_catalog_rows, help_entry
 
 
 REQUIRED_KEYS = {
@@ -35,4 +35,11 @@ def test_help_content_covers_ui_keys():
     for key in REQUIRED_KEYS:
         entry = help_entry(key)
         assert entry["title"].strip()
+        assert entry["summary"].strip()
         assert entry["body"].strip()
+        assert entry["group"].strip()
+
+
+def test_help_catalog_rows_match_content():
+    rows = help_catalog_rows()
+    assert {row["key"] for row in rows} == set(HELP_CONTENT)
