@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import reflex as rx
-from reflex_google_auth import google_login, google_oauth_provider
 
 from dss_clustering.components.busy import busy_overlay
+from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.nav_state import (
     TAB_ANALYSIS,
@@ -56,9 +56,11 @@ def _auth_chip() -> rx.Component:
             spacing="2",
             align="center",
         ),
+        # The analysis gate renders its own button; mounting a second one makes
+        # Google warn that initialize() ran more than once.
         rx.cond(
-            AuthState.has_client_id,
-            google_oauth_provider(google_login()),
+            AuthState.has_client_id & (NavState.main_tab != TAB_ANALYSIS),
+            google_signin_button(),
             rx.fragment(),
         ),
     )
@@ -85,7 +87,12 @@ def app_header() -> rx.Component:
                 align="center",
             ),
             rx.spacer(),
-            _auth_chip(),
+            rx.hstack(
+                rx.color_mode.button(size="1", variant="ghost"),
+                _auth_chip(),
+                spacing="2",
+                align="center",
+            ),
             width="100%",
             align="center",
             spacing="4",

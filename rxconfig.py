@@ -10,7 +10,9 @@ config = rx.Config(
     plugins=[
         rx.plugins.RadixThemesPlugin(
             theme=rx.theme(
-                appearance="light",
+                # "inherit" follows the color-mode toggle in the header instead of
+                # pinning the app to light, so dark mode is actually reachable.
+                appearance="inherit",
                 accent_color="teal",
                 gray_color="slate",
                 radius="medium",

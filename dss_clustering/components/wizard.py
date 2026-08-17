@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import reflex as rx
-from reflex_google_auth import google_login, google_oauth_provider
 
 from dss_clustering.components.data_step import data_step
 from dss_clustering.components.dendrogram_step import dendrogram_step
 from dss_clustering.components.features_step import features_step
+from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.components.manual_cluster_step import manual_cluster_step
 from dss_clustering.components.plot_step import plot_step
 from dss_clustering.components.rescale_step import rescale_step
@@ -113,17 +113,15 @@ def _sign_in_gate() -> rx.Component:
         ),
         rx.cond(
             AuthState.has_client_id,
-            google_oauth_provider(
-                rx.vstack(
-                    google_login(),
-                    rx.text(
-                        "After Google completes, your session links automatically.",
-                        size="1",
-                        color="gray",
-                    ),
-                    spacing="3",
-                    align="start",
-                )
+            rx.vstack(
+                google_signin_button(),
+                rx.text(
+                    "After Google completes, your session links automatically.",
+                    size="1",
+                    color="gray",
+                ),
+                spacing="3",
+                align="start",
             ),
             rx.callout(
                 "Add GOOGLE_CLIENT_ID to your environment (see .env.example), "
@@ -136,6 +134,47 @@ def _sign_in_gate() -> rx.Component:
         rx.cond(
             AuthState.auth_message != "",
             rx.text(AuthState.auth_message, size="2", color="red"),
+        ),
+        rx.text(
+            "Sign-in status: "
+            + AuthState.auth_stage
+            + " · token valid: "
+            + rx.cond(AuthState.token_is_valid, "yes", "no")
+            + " · linked user: "
+            + AuthState.current_user_id.to(str),
+            size="1",
+            color="gray",
+        ),
+        rx.text(
+            "This page's origin is "
+            + AuthState.page_origin
+            + " (client …"
+            + AuthState.client_id_tail
+            + "). Google rejects sign-in unless this exact origin is an "
+            + "Authorized JavaScript origin on that client.",
+            size="1",
+            color="gray",
+        ),
+        rx.cond(
+            AuthState.dev_signin_available,
+            rx.vstack(
+                rx.divider(),
+                rx.text(
+                    "Development mode: continue without Google to work on the "
+                    "pipeline while this origin is unregistered.",
+                    size="1",
+                    color="gray",
+                ),
+                rx.button(
+                    "Continue as local developer",
+                    size="2",
+                    variant="soft",
+                    on_click=AuthState.dev_sign_in,
+                ),
+                spacing="2",
+                align="start",
+                width="100%",
+            ),
         ),
         spacing="4",
         align="start",
