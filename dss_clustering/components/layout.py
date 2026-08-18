@@ -111,17 +111,41 @@ def app_header() -> rx.Component:
 
 def app_footer() -> rx.Component:
     return rx.box(
-        rx.hstack(
-            rx.text("Amir Yorav", size="2", weight="medium"),
-            rx.text("·", size="2", color="gray"),
-            rx.link(CONTACT_EMAIL, href=f"mailto:{CONTACT_EMAIL}", size="2"),
-            rx.text("·", size="2", color="gray"),
-            rx.link("GitHub", href=GITHUB_URL, is_external=True, size="2"),
+        rx.vstack(
+            rx.hstack(
+                rx.button(
+                    "About",
+                    size="1",
+                    variant="ghost",
+                    on_click=NavState.go_home,
+                ),
+                rx.text("·", size="2", color="gray"),
+                rx.button(
+                    "How to use",
+                    size="1",
+                    variant="ghost",
+                    on_click=NavState.go_help,
+                ),
+                spacing="1",
+                align="center",
+                justify="center",
+                width="100%",
+            ),
+            rx.hstack(
+                rx.text("Amir Yorav", size="2", weight="medium"),
+                rx.text("·", size="2", color="gray"),
+                rx.link(CONTACT_EMAIL, href=f"mailto:{CONTACT_EMAIL}", size="2"),
+                rx.text("·", size="2", color="gray"),
+                rx.link("GitHub", href=GITHUB_URL, is_external=True, size="2"),
+                spacing="2",
+                align="center",
+                flex_wrap="wrap",
+                justify="center",
+                width="100%",
+            ),
             spacing="2",
-            align="center",
-            flex_wrap="wrap",
-            justify="center",
             width="100%",
+            align="center",
         ),
         width="100%",
         padding_y="1.25rem",

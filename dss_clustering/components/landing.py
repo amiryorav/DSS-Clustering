@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.site_content import ABOUT_BODY, ABOUT_SUMMARY, ABOUT_TITLE
 from dss_clustering.states.nav_state import NavState
 from dss_clustering.styles import ACCENT, BORDER, BRAND_NAME, BRAND_TAGLINE
 
@@ -21,6 +22,19 @@ def _capability(title: str, body: str) -> rx.Component:
     )
 
 
+def _about_section() -> rx.Component:
+    """Purpose of the site — kept below the hero so the first viewport stays brand-first."""
+    return rx.vstack(
+        rx.heading(ABOUT_TITLE, size="6", weight="bold"),
+        rx.text(ABOUT_SUMMARY, size="3", color="gray", max_width="44rem"),
+        rx.text(ABOUT_BODY, size="2", max_width="44rem"),
+        spacing="3",
+        align="start",
+        width="100%",
+        padding_y="1rem",
+    )
+
+
 def landing_page() -> rx.Component:
     return rx.vstack(
         rx.vstack(
@@ -32,6 +46,12 @@ def landing_page() -> rx.Component:
                     size="3",
                     color_scheme=ACCENT,
                     on_click=NavState.start_analysis,
+                ),
+                rx.button(
+                    "How to use",
+                    size="3",
+                    variant="soft",
+                    on_click=NavState.go_help,
                 ),
                 spacing="3",
                 flex_wrap="wrap",
@@ -58,6 +78,7 @@ def landing_page() -> rx.Component:
             spacing="4",
             width="100%",
         ),
+        _about_section(),
         spacing="6",
         width="100%",
         align="start",
