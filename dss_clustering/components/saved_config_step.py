@@ -5,7 +5,6 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.google_signin import google_signin_button
-from dss_clustering.components.help import help_button, help_panel
 from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.saved_config_state import SavedConfigState
 
@@ -59,20 +58,6 @@ def _preset_row(preset: dict) -> rx.Component:
 def saved_config_step() -> rx.Component:
     """Save / load named pipeline configurations for the current account."""
     return rx.vstack(
-        rx.hstack(
-            rx.heading("Analysis presets", size="5"),
-            help_button("presets"),
-            spacing="2",
-            align="center",
-        ),
-        help_panel("presets"),
-        rx.text(
-            "Guests can run the full analysis with the defaults below. "
-            "Sign in if you want to save or reload named Data→Dendrogram "
-            "snapshots under your account.",
-            color="gray",
-            size="2",
-        ),
         rx.cond(
             AuthState.is_authenticated,
             rx.vstack(

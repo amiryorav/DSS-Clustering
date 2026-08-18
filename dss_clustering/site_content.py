@@ -27,70 +27,66 @@ ABOUT_BODY = (
 HOW_TO_TITLE = "How to use this site"
 
 HOW_TO_SUMMARY = (
-    "A typical path from Analysis through tables. Short tips also sit next "
-    "to each Analysis control; this page is the end-to-end walkthrough."
+    "Everything lives on one page — scroll from top to bottom. Short tips sit "
+    "next to individual controls; this is the end-to-end walkthrough."
 )
 
-# Ordered steps for the Help overview. Keep labels aligned with the wizard rail.
+# Ordered steps for the Help overview. Keep aligned with the one-page sections.
 HOW_TO_STEPS: list[dict[str, str]] = [
     {
-        "title": "Open Analysis (sign-in optional)",
+        "title": "1 · Choose your texts",
         "body": (
-            "Use Start analysis or the Analysis tab. Guests can run the full "
-            "pipeline immediately. Sign in with Google only when you want "
-            "presets or manual groups saved to your account."
+            "Every eligible book starts selected. Search and untick anything "
+            "you want to leave out. Guests can run everything without signing "
+            "in; sign in only to save settings and hand-picked groups."
         ),
     },
     {
-        "title": "Optional: load a preset",
+        "title": "2 · Words or grammar",
         "body": (
-            "On Presets, restore a named snapshot of controls you saved "
-            "earlier (requires sign-in), or continue with the defaults."
+            "Compare the texts by the words they use, or by their grammar. "
+            "Words is a good starting point; deeper feature choices live under "
+            "'Under the hood'."
         ),
     },
     {
-        "title": "Select books",
+        "title": "3 · Run the analysis",
         "body": (
-            "On Data, every eligible book starts selected. Narrow the set if "
-            "you only want Mikra, Mishna, or DSS documents in the experiment."
+            "One button counts the features, weights them, and reduces the "
+            "numbers behind the scenes. The weighting and dimensionality "
+            "controls are tucked under the hood if you want them."
         ),
     },
     {
-        "title": "Choose features",
+        "title": "4 · The 3D map",
         "body": (
-            "Pick lemma signatures or morphology columns, and decide whether "
-            "proper-name rows are kept or ignored."
+            "Every book is a dot; books that use language similarly sit close "
+            "together. Rotate and zoom with the buttons, or compare four "
+            "projections side by side."
         ),
     },
     {
-        "title": "Build and weight the matrix",
+        "title": "5 · The dendrogram",
         "body": (
-            "Run Vectorize to build the book × signature counts, then choose "
-            "raw, TF, or TF-IDF on Rescale (TF is the default). Rebuild "
-            "Vectorize after book or feature changes."
+            "The same closeness drawn as a tree. Slide the cut line to split "
+            "the books into more or fewer clusters."
         ),
     },
     {
-        "title": "Optional: SVD",
+        "title": "6 · Your own groups",
         "body": (
-            "Compress the active matrix for clustering. Sweep mode picks a "
-            "dimension count from cophenetic correlation within what the "
-            "matrix size allows."
+            "Click books on the map to gather them into a group, then see what "
+            "makes that group stand out. Groups you name are usable in the "
+            "comparison tables straight away; they last for your visit, and "
+            "signing in keeps them for next time."
         ),
     },
     {
-        "title": "Explore space and clusters",
+        "title": "7 · The numbers",
         "body": (
-            "Use the 3D plot for layout, the dendrogram to cut hierarchical "
-            "clusters, and Manual group to pick books by hand and save them."
-        ),
-    },
-    {
-        "title": "Compare and export",
-        "body": (
-            "On Tables, compare any two entities (book, cluster, manual group, "
-            "or the whole corpus). Export plots and tables when you want a "
-            "shareable record."
+            "Compare any two groups — a book, a family from the tree, one of "
+            "your groups, or a whole corpus — and read which features set them "
+            "apart. Export plots and tables anytime."
         ),
     },
 ]

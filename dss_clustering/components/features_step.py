@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.help import help_panel, step_header
 from dss_clustering.states.feature_state import FeatureState
 
 
@@ -22,19 +21,24 @@ def _morph_column_row(item: dict) -> rx.Component:
     )
 
 
-def _lemma_panel() -> rx.Component:
-    return rx.box(
-        rx.text(
-            "Lemma mode uses the clean_lemma column only. "
-            "Each word occurrence becomes a signature of the form clean_lemma=…",
-            size="2",
-            color="gray",
+def _active_columns() -> rx.Component:
+    return rx.hstack(
+        rx.text("Active columns:", weight="bold", size="2"),
+        rx.cond(
+            FeatureState.is_ready,
+            rx.flex(
+                rx.foreach(
+                    FeatureState.active_columns,
+                    lambda col: rx.badge(col, variant="outline", size="1"),
+                ),
+                gap="2",
+                flex_wrap="wrap",
+            ),
+            rx.badge("none selected", color_scheme="red", size="1"),
         ),
-        rx.badge("clean_lemma", variant="soft", size="2", margin_top="0.5rem"),
-        width="100%",
-        border="1px solid var(--gray-a6)",
-        border_radius="md",
-        padding="0.75rem",
+        spacing="2",
+        align="center",
+        flex_wrap="wrap",
     )
 
 
@@ -96,48 +100,32 @@ def _ignore_proper_names_toggle() -> rx.Component:
     )
 
 
-def features_step() -> rx.Component:
-    """Features step: lemma vs morphology + ignore proper-name."""
-    return rx.vstack(
-        step_header("Features", "features"),
-        help_panel("features"),
-        rx.text(
-            "Choose the analytical basis for the rest of the pipeline. "
-            "Lemma and morphology modes are mutually exclusive.",
-            color="gray",
-        ),
-        rx.segmented_control.root(
-            rx.segmented_control.item("Lemma", value="lemma"),
-            rx.segmented_control.item("Morphology", value="morphology"),
-            value=FeatureState.mode,
-            on_change=FeatureState.set_mode,
-        ),
+def features_advanced() -> rx.Component:
+    """Under-the-hood: morphology column picks, proper names, active columns."""
+    from dss_clustering.components.section import under_hood
+
+    return under_hood(
         rx.cond(
             FeatureState.is_morphology,
             _morphology_panel(),
-            _lemma_panel(),
         ),
         rx.cond(
             FeatureState.show_ignore_proper_names,
             _ignore_proper_names_toggle(),
         ),
-        rx.hstack(
-            rx.text("Active columns:", weight="bold", size="2"),
-            rx.cond(
-                FeatureState.is_ready,
-                rx.flex(
-                    rx.foreach(
-                        FeatureState.active_columns,
-                        lambda col: rx.badge(col, variant="outline", size="1"),
-                    ),
-                    gap="2",
-                    flex_wrap="wrap",
-                ),
-                rx.badge("none selected", color_scheme="red", size="1"),
-            ),
-            spacing="2",
-            align="center",
-            flex_wrap="wrap",
+        _active_columns(),
+    )
+
+
+def features_step() -> rx.Component:
+    """Features step: words vs grammar."""
+    return rx.vstack(
+        rx.segmented_control.root(
+            rx.segmented_control.item("Words", value="lemma"),
+            rx.segmented_control.item("Grammar", value="morphology"),
+            value=FeatureState.mode,
+            on_change=FeatureState.set_mode,
+            size="2",
         ),
         rx.text(FeatureState.status_message, size="2", color="gray"),
         spacing="4",

@@ -5,9 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.help_page import help_page
-from dss_clustering.components.landing import landing_page
 from dss_clustering.components.layout import page_shell
-from dss_clustering.components.wizard import analysis_wizard
+from dss_clustering.components.one_page import one_page
 from dss_clustering.models import (  # noqa: F401
     AnalysisPreset,
     Document,
@@ -19,7 +18,6 @@ from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.data_state import DataState
 from dss_clustering.states.manual_cluster_state import ManualClusterState
 from dss_clustering.states.nav_state import (
-    TAB_ANALYSIS,
     TAB_HELP,
     TAB_HOME,
     NavState,
@@ -30,10 +28,9 @@ from dss_clustering.states.saved_config_state import SavedConfigState
 def _main_body() -> rx.Component:
     return rx.match(
         NavState.main_tab,
-        (TAB_HOME, landing_page()),
-        (TAB_ANALYSIS, analysis_wizard()),
+        (TAB_HOME, one_page()),
         (TAB_HELP, help_page()),
-        landing_page(),
+        one_page(),
     )
 
 

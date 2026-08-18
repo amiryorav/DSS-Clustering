@@ -5,7 +5,6 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.feature_grid import feature_grid
-from dss_clustering.components.help import help_button, help_panel, step_header
 from dss_clustering.pipeline.metrics import (
     SCOPE_BOOK,
     SCOPE_CLUSTER,
@@ -93,22 +92,6 @@ def _member_panel(title, rows, color: str) -> rx.Component:
 def tables_step() -> rx.Component:
     """Top / distinctive / gap tables for a subject-reference comparison."""
     return rx.vstack(
-        step_header("Data tables", "tables"),
-        help_panel("tables"),
-        rx.text(
-            "Pick a subject and a reference. Each side can be "
-            "a corpus (or the whole selection), a dendrogram cluster, one of your "
-            "saved manual groups, or a single book. Books that appear on both "
-            "sides are removed from the reference so the comparison stays meaningful.",
-            color="gray",
-        ),
-        rx.hstack(
-            help_button("consistency_score"),
-            rx.text("Consistency / purity", size="1", color="gray"),
-            spacing="1",
-            align="center",
-        ),
-        help_panel("consistency_score"),
         rx.vstack(
             _side_picker(
                 caption=TableState.x_display_label,

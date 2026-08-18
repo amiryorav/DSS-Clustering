@@ -6,7 +6,7 @@ import reflex as rx
 
 from dss_clustering.colors import COLOR_PALETTE
 from dss_clustering.components.export_bar import plot_export_bar
-from dss_clustering.components.help import help_button, help_panel, step_header, tip_button
+from dss_clustering.components.help import tip_button
 from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.plot_state import (
     COLOR_CLUSTER,
@@ -245,71 +245,11 @@ def _book_row(book) -> rx.Component:
     )
 
 
-def plot_step() -> rx.Component:
-    """3D scatter with SVD / UMAP / t-SNE, labels, and book controls."""
-    return rx.vstack(
-        step_header("3D plot", "plot"),
-        help_panel("plot"),
-        rx.text(
-            "SVD uses the analysis embedding (feeds clustering). "
-            "UMAP and t-SNE are visualization-only — they do not change the dendrogram. "
-            "Cluster coloring follows the current dendrogram cut. "
-            "Click any point to start a new manual book group, then keep clicking to toggle books.",
-            color="gray",
-        ),
-        rx.hstack(
-            help_button("umap"),
-            rx.text("UMAP", size="1", color="gray"),
-            help_button("tsne"),
-            rx.text("t-SNE", size="1", color="gray"),
-            spacing="2",
-            align="center",
-        ),
-        help_panel("umap"),
-        help_panel("tsne"),
-        rx.hstack(
-            rx.segmented_control.root(
-                rx.segmented_control.item("SVD", value=METHOD_SVD),
-                rx.segmented_control.item("UMAP", value=METHOD_UMAP),
-                rx.segmented_control.item("t-SNE", value=METHOD_TSNE),
-                value=PlotState.method,
-                on_change=PlotState.set_method,
-            ),
-            rx.segmented_control.root(
-                rx.segmented_control.item("Identity", value=COLOR_IDENTITY),
-                rx.segmented_control.item(
-                    "Dendrogram clusters", value=COLOR_CLUSTER
-                ),
-                value=PlotState.color_mode,
-                on_change=PlotState.set_color_mode,
-            ),
-            rx.segmented_control.root(
-                rx.segmented_control.item("Short labels", value=LABEL_SHORT),
-                rx.segmented_control.item("Hide labels", value=LABEL_HIDDEN),
-                value=PlotState.label_mode,
-                on_change=PlotState.set_label_mode,
-            ),
-            tip_button(
-                "Refresh plot",
-                "Redraw the 3D scatter with the current settings",
-                on_click=PlotState.recompute,
-                size="2",
-                variant="soft",
-                loading=PlotState.is_fitting_viz,
-            ),
-            tip_button(
-                rx.cond(PlotState.show_grid, "Single view", "Compare 4 views"),
-                "Show SVD 0-1-2, SVD 1-2-3, UMAP and t-SNE side by side",
-                on_click=PlotState.toggle_grid,
-                size="2",
-                variant="soft",
-                loading=PlotState.is_fitting_viz,
-            ),
-            spacing="4",
-            flex_wrap="wrap",
-            align="center",
-            width="100%",
-        ),
+def plot_advanced() -> rx.Component:
+    """Under-the-hood: which SVD dims to show and the UMAP / t-SNE knobs."""
+    from dss_clustering.components.section import under_hood
+
+    return under_hood(
         rx.cond(
             PlotState.is_svd_method,
             rx.hstack(
@@ -357,6 +297,55 @@ def plot_step() -> rx.Component:
                 flex_wrap="wrap",
                 align="center",
             ),
+        ),
+    )
+
+
+def plot_step() -> rx.Component:
+    """3D scatter with SVD / UMAP / t-SNE, labels, and book controls."""
+    return rx.vstack(
+        rx.hstack(
+            rx.segmented_control.root(
+                rx.segmented_control.item("SVD", value=METHOD_SVD),
+                rx.segmented_control.item("UMAP", value=METHOD_UMAP),
+                rx.segmented_control.item("t-SNE", value=METHOD_TSNE),
+                value=PlotState.method,
+                on_change=PlotState.set_method,
+            ),
+            rx.segmented_control.root(
+                rx.segmented_control.item("Identity", value=COLOR_IDENTITY),
+                rx.segmented_control.item(
+                    "Dendrogram clusters", value=COLOR_CLUSTER
+                ),
+                value=PlotState.color_mode,
+                on_change=PlotState.set_color_mode,
+            ),
+            rx.segmented_control.root(
+                rx.segmented_control.item("Short labels", value=LABEL_SHORT),
+                rx.segmented_control.item("Hide labels", value=LABEL_HIDDEN),
+                value=PlotState.label_mode,
+                on_change=PlotState.set_label_mode,
+            ),
+            tip_button(
+                "Refresh plot",
+                "Redraw the 3D scatter with the current settings",
+                on_click=PlotState.recompute,
+                size="2",
+                variant="soft",
+                loading=PlotState.is_fitting_viz,
+            ),
+            tip_button(
+                rx.cond(PlotState.show_grid, "Single view", "Compare 4 views"),
+                "Show SVD 0-1-2, SVD 1-2-3, UMAP and t-SNE side by side",
+                on_click=PlotState.toggle_grid,
+                size="2",
+                variant="soft",
+                loading=PlotState.is_fitting_viz,
+            ),
+            spacing="4",
+            flex_wrap="wrap",
+            align="center",
+            width="100%",
         ),
         rx.text(PlotState.status_message, size="2", color="gray"),
         rx.text(ExportState.status_message, size="2", color="gray"),
@@ -450,6 +439,19 @@ def plot_step() -> rx.Component:
         rx.cond(
             PlotState.plot_books.length() > 0,
             rx.vstack(
+                rx.vstack(
+                    rx.heading("Book coloring", size="5", weight="bold"),
+                    rx.text(
+                        "Show or hide whole corpora and individual books, and "
+                        "give any book its own color on the map.",
+                        size="2",
+                        color="gray",
+                    ),
+                    spacing="1",
+                    align="start",
+                    width="100%",
+                    padding_top="1rem",
+                ),
                 rx.hstack(
                     rx.foreach(PlotState.plot_corpora, _corpus_toggle_row),
                     spacing="4",

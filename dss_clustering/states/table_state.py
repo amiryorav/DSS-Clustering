@@ -179,7 +179,8 @@ class TableState(rx.State):
 
         manual = await self.get_state(ManualClusterState)
         await manual.reload_saved_groups()
-        return list(manual.saved_groups)
+        # Guests get session-only groups, so both kinds are selectable here.
+        return manual.all_groups()
 
     async def _options_for(self, kind: str, manual_groups: list[dict]) -> list[dict]:
         data = await self.get_state(DataState)
@@ -241,8 +242,8 @@ class TableState(rx.State):
     def _no_options_message(kind: str, side: str) -> str:
         if kind == SCOPE_MANUAL:
             return (
-                f"No saved manual groups to use as {side}. Pick books in the "
-                "manual group step and save them first."
+                f"No manual groups to use as {side}. Pick books in 'Your own "
+                "groups' and save one first."
             )
         if kind == SCOPE_CLUSTER:
             return f"No dendrogram clusters available for {side}."

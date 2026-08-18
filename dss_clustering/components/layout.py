@@ -10,12 +10,7 @@ from dss_clustering.components.google_signin import (
     google_signin_button,
 )
 from dss_clustering.states.auth_state import AuthState
-from dss_clustering.states.nav_state import (
-    TAB_ANALYSIS,
-    TAB_HELP,
-    TAB_HOME,
-    NavState,
-)
+from dss_clustering.states.nav_state import TAB_HELP, NavState
 from dss_clustering.styles import (
     ACCENT,
     BORDER,
@@ -27,14 +22,15 @@ from dss_clustering.styles import (
 )
 
 
-def _nav_tab(label: str, value: str) -> rx.Component:
-    active = NavState.main_tab == value
+def _help_toggle() -> rx.Component:
+    """Analysis is the only screen, so Help toggles in and back out."""
+    on_help = NavState.main_tab == TAB_HELP
     return rx.button(
-        label,
+        rx.cond(on_help, "Back to analysis", "Help"),
         size="2",
-        variant=rx.cond(active, "solid", "soft"),
-        color_scheme=rx.cond(active, ACCENT, "gray"),
-        on_click=NavState.set_main_tab(value),
+        variant=rx.cond(on_help, "solid", "soft"),
+        color_scheme=rx.cond(on_help, ACCENT, "gray"),
+        on_click=rx.cond(on_help, NavState.go_home, NavState.go_help),
     )
 
 
@@ -72,27 +68,17 @@ def _auth_chip() -> rx.Component:
 def app_header() -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.vstack(
-                rx.heading(BRAND_NAME, size="6", weight="bold"),
-                rx.cond(
-                    NavState.main_tab == TAB_ANALYSIS,
-                    rx.text(NavState.step_progress + " · " + NavState.step_label, size="1", color="gray"),
-                ),
-                spacing="0",
-                align="start",
-            ),
-            rx.spacer(),
-            rx.hstack(
-                _nav_tab("Home", TAB_HOME),
-                _nav_tab("Analysis", TAB_ANALYSIS),
-                _nav_tab("Help", TAB_HELP),
-                spacing="2",
-                align="center",
+            rx.button(
+                rx.heading(BRAND_NAME, size="5", weight="bold"),
+                variant="ghost",
+                color_scheme="gray",
+                on_click=NavState.go_home,
             ),
             rx.spacer(),
             rx.hstack(
                 rx.color_mode.button(size="1", variant="ghost"),
                 _auth_chip(),
+                _help_toggle(),
                 spacing="2",
                 align="center",
             ),

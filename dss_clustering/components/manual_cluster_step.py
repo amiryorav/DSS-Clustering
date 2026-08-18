@@ -6,7 +6,6 @@ import reflex as rx
 
 from dss_clustering.components.feature_grid import feature_grid
 from dss_clustering.components.google_signin import google_signin_button
-from dss_clustering.components.help import help_panel, step_header
 from dss_clustering.pipeline.metrics import (
     COMPARE_ALL_OTHER,
     COMPARE_CORPUS,
@@ -47,17 +46,22 @@ def _saved_group_row(group: dict) -> rx.Component:
             size="1",
             color="gray",
         ),
+        rx.cond(
+            group["scope"] == "session",
+            rx.badge("this visit only", variant="soft", color_scheme="amber", size="1"),
+            rx.badge("saved", variant="soft", color_scheme="green", size="1"),
+        ),
         rx.spacer(),
         _tip_button(
             "Load",
-            "Load this saved group into the picker",
+            "Load this group back into the picker",
             size="1",
             variant="soft",
             on_click=ManualClusterState.load_group(group["id"]),
         ),
         _tip_button(
             "Delete",
-            "Remove this group from your account",
+            "Remove this group",
             size="1",
             variant="soft",
             color_scheme="red",
@@ -65,6 +69,7 @@ def _saved_group_row(group: dict) -> rx.Component:
         ),
         width="100%",
         align="center",
+        spacing="3",
     )
 
 
@@ -84,15 +89,6 @@ def _comparison_member(row: dict) -> rx.Component:
 def manual_cluster_step() -> rx.Component:
     """Click-to-select books and compare against a reference group."""
     return rx.vstack(
-        step_header("Manual group", "manual_cluster"),
-        help_panel("manual_cluster"),
-        rx.text(
-            "Click a book on the 3D plot to start a new group directly, or use "
-            "Start selecting to reset first; then click the 3D plot or dendrogram. "
-            "Done runs the same top / distinctive / gap comparison as the "
-            "tables step against the chosen reference group.",
-            color="gray",
-        ),
         rx.hstack(
             _tip_button(
                 "Start selecting",
@@ -179,30 +175,54 @@ def manual_cluster_step() -> rx.Component:
                 flex_wrap="wrap",
             ),
         ),
-        rx.cond(
-            AuthState.is_authenticated,
+        rx.vstack(
+            rx.hstack(
+                rx.input(
+                    placeholder="Group name…",
+                    value=ManualClusterState.saved_name,
+                    on_change=ManualClusterState.set_saved_name,
+                    size="2",
+                    max_width="14rem",
+                ),
+                _tip_button(
+                    "Save group",
+                    rx.cond(
+                        AuthState.is_authenticated,
+                        "Store this book group under your account",
+                        "Keep this group for the rest of your visit",
+                    ),
+                    on_click=ManualClusterState.save_group,
+                    size="2",
+                    variant="soft",
+                ),
+                spacing="3",
+                align="center",
+                flex_wrap="wrap",
+            ),
+            rx.cond(
+                ~AuthState.is_authenticated,
+                rx.callout(
+                    rx.hstack(
+                        rx.text(
+                            "Groups you save now last until you close the page. "
+                            "Sign in to keep them for next time.",
+                            size="2",
+                        ),
+                        rx.cond(AuthState.has_client_id, google_signin_button()),
+                        spacing="3",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    icon="info",
+                    color_scheme="gray",
+                    width="100%",
+                ),
+            ),
             rx.vstack(
                 rx.hstack(
-                    rx.input(
-                        placeholder="Group name…",
-                        value=ManualClusterState.saved_name,
-                        on_change=ManualClusterState.set_saved_name,
-                        size="2",
-                        max_width="14rem",
-                    ),
-                    _tip_button(
-                        "Save group",
-                        "Store this book group under your account",
-                        on_click=ManualClusterState.save_group,
-                        size="2",
-                        variant="soft",
-                    ),
-                    spacing="3",
-                    align="center",
-                ),
-                rx.vstack(
-                    rx.hstack(
-                        rx.text("Your saved groups", size="2", weight="bold"),
+                    rx.text("Your groups", size="2", weight="bold"),
+                    rx.cond(
+                        AuthState.is_authenticated,
                         _tip_button(
                             "Refresh",
                             "Reload groups from your account",
@@ -210,48 +230,33 @@ def manual_cluster_step() -> rx.Component:
                             variant="ghost",
                             on_click=ManualClusterState.load_saved_groups,
                         ),
-                        spacing="2",
-                        align="center",
                     ),
-                    rx.cond(
-                        ManualClusterState.saved_groups.length() > 0,
-                        rx.vstack(
-                            rx.foreach(
-                                ManualClusterState.saved_groups, _saved_group_row
-                            ),
-                            width="100%",
-                            spacing="2",
-                        ),
-                        rx.text(
-                            "No saved groups yet. Saved groups can be picked as "
-                            "X or Y in the data tables.",
-                            size="1",
-                            color="gray",
-                        ),
-                    ),
-                    width="100%",
                     spacing="2",
-                    align="start",
+                    align="center",
+                ),
+                rx.cond(
+                    ManualClusterState.group_rows.length() > 0,
+                    rx.vstack(
+                        rx.foreach(
+                            ManualClusterState.group_rows, _saved_group_row
+                        ),
+                        width="100%",
+                        spacing="2",
+                    ),
+                    rx.text(
+                        "No groups yet. Saved groups can be picked as either "
+                        "side in the comparison tables below.",
+                        size="1",
+                        color="gray",
+                    ),
                 ),
                 width="100%",
-                spacing="3",
+                spacing="2",
                 align="start",
             ),
-            rx.callout(
-                rx.hstack(
-                    rx.text(
-                        "Sign in to save manual groups to your account.",
-                        size="2",
-                    ),
-                    rx.cond(AuthState.has_client_id, google_signin_button()),
-                    spacing="3",
-                    align="center",
-                    flex_wrap="wrap",
-                ),
-                icon="info",
-                color_scheme="gray",
-                width="100%",
-            ),
+            width="100%",
+            spacing="3",
+            align="start",
         ),
         rx.text(ManualClusterState.status_message, size="2", color="gray"),
         rx.cond(

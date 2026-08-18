@@ -5,7 +5,6 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.export_bar import plot_export_bar
-from dss_clustering.components.help import help_button, help_panel, step_header
 from dss_clustering.pipeline.dendrogram import (
     LINKAGE_AVERAGE,
     LINKAGE_WARD,
@@ -16,60 +15,11 @@ from dss_clustering.states.dendrogram_state import DendrogramState
 from dss_clustering.states.export_state import ExportState
 
 
-def dendrogram_step() -> rx.Component:
-    """Hierarchical clustering tree with live cut-height."""
-    return rx.vstack(
-        step_header("Dendrogram", "dendrogram"),
-        help_panel("dendrogram"),
-        rx.text(
-            "Hierarchical clustering on the SVD analysis embedding. "
-            "Ward locks distance to Euclidean; average allows Euclidean or cosine. "
-            "Release the cut-height slider to recolor clusters without refitting the tree.",
-            color="gray",
-        ),
-        rx.hstack(
-            help_button("ward"),
-            rx.text("Ward", size="1", color="gray"),
-            help_button("average_link"),
-            rx.text("Average linkage", size="1", color="gray"),
-            spacing="2",
-            align="center",
-        ),
-        help_panel("ward"),
-        help_panel("average_link"),
-        rx.cond(
-            DendrogramState.linkage_method == LINKAGE_WARD,
-            rx.vstack(
-                rx.checkbox(
-                    "Mark Ward artifacts as gray italic leaves",
-                    checked=DendrogramState.mark_ward_artifacts,
-                    on_change=DendrogramState.set_mark_ward_artifacts,
-                    size="2",
-                ),
-                rx.cond(
-                    DendrogramState.mark_ward_artifacts,
-                    rx.hstack(
-                        rx.text(
-                            "Gray italic leaf",
-                            color="gray",
-                            font_style="italic",
-                            size="2",
-                        ),
-                        rx.text(
-                            "= Ward artifact (top-5 three-view overlap < 20%). "
-                            "Lemma features flag far more books than morphology, "
-                            "so the original enabled this for morphology only.",
-                            color="gray",
-                            size="2",
-                        ),
-                        spacing="2",
-                        align="center",
-                    ),
-                ),
-                spacing="1",
-                align="start",
-            ),
-        ),
+def dendrogram_advanced() -> rx.Component:
+    """Under-the-hood: linkage, distance metric, refit, and Ward artifacts."""
+    from dss_clustering.components.section import under_hood
+
+    return under_hood(
         rx.hstack(
             rx.segmented_control.root(
                 rx.segmented_control.item("Ward", value=LINKAGE_WARD),
@@ -96,6 +46,34 @@ def dendrogram_step() -> rx.Component:
             align="center",
             width="100%",
         ),
+        rx.cond(
+            DendrogramState.linkage_method == LINKAGE_WARD,
+            rx.vstack(
+                rx.checkbox(
+                    "Mark Ward artifacts as gray italic leaves",
+                    checked=DendrogramState.mark_ward_artifacts,
+                    on_change=DendrogramState.set_mark_ward_artifacts,
+                    size="2",
+                ),
+                rx.cond(
+                    DendrogramState.mark_ward_artifacts,
+                    rx.text(
+                        "Gray italic leaf = Ward artifact (top-5 three-view "
+                        "overlap < 20%).",
+                        color="gray",
+                        size="1",
+                    ),
+                ),
+                spacing="1",
+                align="start",
+            ),
+        ),
+    )
+
+
+def dendrogram_step() -> rx.Component:
+    """Hierarchical clustering tree with live cut-height."""
+    return rx.vstack(
         rx.cond(
             DendrogramState.has_tree,
             rx.vstack(

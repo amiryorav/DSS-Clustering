@@ -41,6 +41,9 @@ class ManualClusterState(rx.State):
     saved_name: str = ""
     # Saved groups for the current user, loaded from `manual_clusters`.
     saved_groups: list[dict] = []
+    # Guest groups: kept in this browser session only, never written to the DB.
+    session_groups: list[dict] = []
+    session_seq: int = 0
     comparison_options_rows: list[dict] = [
         {"value": corpus, "label": CORPUS_LABELS.get(corpus, corpus)}
         for corpus in CORPUS_ORDER
@@ -62,6 +65,15 @@ class ManualClusterState(rx.State):
     @rx.var(cache=True)
     def n_picked(self) -> int:
         return len(self.picked_document_ids)
+
+    @rx.var(cache=True)
+    def group_rows(self) -> list[dict]:
+        """Session groups first, then anything stored on the account."""
+        return [*self.session_groups, *self.saved_groups]
+
+    def all_groups(self) -> list[dict]:
+        """Both kinds of group, for whoever needs to resolve ids to books."""
+        return [*self.session_groups, *self.saved_groups]
 
     @rx.var(cache=True)
     async def picked_chip_rows(self) -> list[dict]:
@@ -278,6 +290,31 @@ class ManualClusterState(rx.State):
             self.has_results = False
             self.status_message = f"Manual compare failed: {exc}"
 
+    def _save_session_group(self, name: str, feature_mode: str) -> None:
+        """Keep a guest's group in state, replacing any earlier one by name."""
+        self.session_seq += 1
+        ids = [int(i) for i in self.picked_document_ids]
+        group = {
+            # Negative ids keep session groups distinguishable from DB rows.
+            "id": -self.session_seq,
+            "name": name,
+            "document_ids": ids,
+            "n_books": len(ids),
+            "feature_mode": feature_mode,
+            "comparison_scope_type": self.comparison_scope_type,
+            "comparison_scope_value": self.comparison_scope_value,
+            "created_at": "this session",
+            "scope": "session",
+        }
+        self.session_groups = [
+            *[g for g in self.session_groups if g["name"] != name],
+            group,
+        ]
+        self.status_message = (
+            f"Saved '{name}' ({len(ids)} books) for this visit. "
+            "Sign in if you want it kept for next time."
+        )
+
     async def _owner_user_id(self) -> int:
         """Saved groups belong to the signed-in account only."""
         from dss_clustering.states.auth_state import AuthState
@@ -292,10 +329,14 @@ class ManualClusterState(rx.State):
             self.saved_groups = []
             return
         try:
-            self.saved_groups = list_manual_clusters(user_id)
+            self.saved_groups = self._tag_account(list_manual_clusters(user_id))
         except Exception as exc:  # noqa: BLE001
             self.saved_groups = []
             self.status_message = f"Could not load saved clusters: {exc}"
+
+    @staticmethod
+    def _tag_account(rows: list[dict]) -> list[dict]:
+        return [{**row, "scope": "account"} for row in rows]
 
     @rx.event(background=True)
     async def load_saved_groups(self):
@@ -313,14 +354,13 @@ class ManualClusterState(rx.State):
             self.status_message = "Nothing to save — pick books first."
             return
 
+        feature = await self.get_state(FeatureState)
+
         user_id = await self._owner_user_id()
         if not user_id:
-            self.status_message = (
-                "Sign in to save this group to your account."
-            )
+            self._save_session_group(name, feature.mode)
             return
 
-        feature = await self.get_state(FeatureState)
         try:
             save_manual_cluster(
                 user_id,
@@ -334,26 +374,35 @@ class ManualClusterState(rx.State):
             self.status_message = f"Save failed: {exc}"
             return
 
-        self.saved_groups = list_manual_clusters(user_id)
+        self.saved_groups = self._tag_account(list_manual_clusters(user_id))
         self.status_message = (
             f"Saved '{name}' ({len(self.picked_document_ids)} books) to your account."
         )
 
     @rx.event
     async def delete_group(self, group_id: int):
+        gid = int(group_id)
+        if gid < 0:
+            self.session_groups = [
+                g for g in self.session_groups if g["id"] != gid
+            ]
+            self.status_message = "Removed this visit's group."
+            return
         user_id = await self._owner_user_id()
         if not user_id:
             return
         try:
-            delete_manual_cluster(user_id, int(group_id))
-            self.saved_groups = list_manual_clusters(user_id)
+            delete_manual_cluster(user_id, gid)
+            self.saved_groups = self._tag_account(list_manual_clusters(user_id))
             self.status_message = "Deleted saved cluster."
         except Exception as exc:  # noqa: BLE001
             self.status_message = f"Delete failed: {exc}"
 
     @rx.event
     def load_group(self, group_id: int):
-        match = next((g for g in self.saved_groups if g["id"] == group_id), None)
+        match = next(
+            (g for g in self.all_groups() if g["id"] == group_id), None
+        )
         if match is None:
             return
         self.picked_document_ids = list(match["document_ids"])

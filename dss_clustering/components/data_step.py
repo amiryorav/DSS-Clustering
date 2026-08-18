@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.help import help_panel, step_header, tip_button
+from dss_clustering.components.help import tip_button
 from dss_clustering.states.data_state import DataState
 
 
@@ -52,15 +52,38 @@ def _corpus_section(corpus: str) -> rx.Component:
     )
 
 
-def data_step() -> rx.Component:
-    """Data step panel: search, threshold, and book selection."""
-    return rx.vstack(
-        step_header("Data", "data"),
-        help_panel("data"),
-        rx.text(
-            "Choose which books and scrolls to include.",
-            color="gray",
+def data_advanced() -> rx.Component:
+    """Under-the-hood: the minimum-valid-rows threshold and a catalog reload."""
+    from dss_clustering.components.section import under_hood
+
+    return under_hood(
+        rx.hstack(
+            rx.text("Minimum valid rows per book", size="2", white_space="nowrap"),
+            rx.input(
+                type="number",
+                value=DataState.min_entries_per_book.to(str),
+                on_change=DataState.set_min_entries,
+                width="6rem",
+            ),
+            tip_button(
+                "Reload catalog",
+                "Reload the book catalog from the database",
+                on_click=DataState.load_documents,
+                loading=DataState.is_loading,
+                size="2",
+                variant="soft",
+            ),
+            spacing="3",
+            align="center",
+            flex_wrap="wrap",
         ),
+        rx.text(DataState.status_message, size="2", color="gray"),
+    )
+
+
+def data_step() -> rx.Component:
+    """Data step panel: search and book selection."""
+    return rx.vstack(
         rx.hstack(
             rx.input(
                 placeholder="Search books...",
@@ -68,24 +91,6 @@ def data_step() -> rx.Component:
                 on_change=DataState.set_search_text,
                 max_width="18rem",
                 width="100%",
-            ),
-            rx.hstack(
-                rx.text("Min valid rows", size="2", white_space="nowrap"),
-                rx.input(
-                    type="number",
-                    value=DataState.min_entries_per_book.to(str),
-                    on_change=DataState.set_min_entries,
-                    width="6rem",
-                ),
-                tip_button(
-                    "Reload",
-                    "Reload the book catalog from the database",
-                    on_click=DataState.load_documents,
-                    loading=DataState.is_loading,
-                    size="2",
-                ),
-                spacing="2",
-                align="center",
             ),
             tip_button(
                 "Select all visible",
@@ -104,7 +109,6 @@ def data_step() -> rx.Component:
             align="center",
             width="100%",
         ),
-        rx.text(DataState.status_message, size="2", color="gray"),
         rx.cond(
             DataState.is_loading,
             rx.hstack(

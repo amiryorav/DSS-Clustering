@@ -15,7 +15,11 @@ config = rx.Config(
                 appearance="inherit",
                 accent_color="teal",
                 gray_color="slate",
-                radius="medium",
+                radius="large",
+                # Lift the whole type/spacing scale for a friendlier, less
+                # dense "brochure" feel. Controls still need their own bumps
+                # since many were pinned to size="1".
+                scaling="110%",
             )
         ),
     ],
