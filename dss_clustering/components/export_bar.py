@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.help import tip_button
 from dss_clustering.states.export_state import ExportState
 
 
@@ -11,20 +12,23 @@ def table_export_bar(source: str, kind: str) -> rx.Component:
     """CSV / Excel / PDF buttons for one feature table panel."""
     return rx.hstack(
         rx.text("Export", size="1", color="gray"),
-        rx.button(
+        tip_button(
             "CSV",
+            "Download this table as CSV",
             size="1",
             variant="soft",
             on_click=ExportState.export_feature_table(source, kind, "csv"),
         ),
-        rx.button(
+        tip_button(
             "Excel",
+            "Download this table as Excel",
             size="1",
             variant="soft",
             on_click=ExportState.export_feature_table(source, kind, "excel"),
         ),
-        rx.button(
+        tip_button(
             "PDF",
+            "Download this table as PDF",
             size="1",
             variant="soft",
             on_click=ExportState.export_feature_table(source, kind, "pdf"),
@@ -49,8 +53,20 @@ def plot_export_bar(*, kind: str) -> rx.Component:
         on_pdf = ExportState.export_dendrogram("pdf")
     return rx.hstack(
         rx.text("Export", size="1", color="gray"),
-        rx.button("PNG", size="1", variant="soft", on_click=on_png),
-        rx.button("PDF", size="1", variant="soft", on_click=on_pdf),
+        tip_button(
+            "PNG",
+            "Download the current view as PNG",
+            size="1",
+            variant="soft",
+            on_click=on_png,
+        ),
+        tip_button(
+            "PDF",
+            "Download the current view as PDF",
+            size="1",
+            variant="soft",
+            on_click=on_pdf,
+        ),
         spacing="2",
         align="center",
     )

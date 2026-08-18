@@ -16,7 +16,7 @@ RESCALE_TFIDF = "tfidf"
 class RescaleState(rx.State):
     """Choose how raw counts are weighted before SVD and metrics."""
 
-    mode: str = RESCALE_TFIDF
+    mode: str = RESCALE_TF
     status_message: str = "Build a count matrix first, then choose a weighting."
     n_nnz: int = 0
     applied: bool = False

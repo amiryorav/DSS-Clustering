@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.busy import busy_banner
-from dss_clustering.components.help import help_panel, step_header
+from dss_clustering.components.help import help_panel, step_header, tip_button
 from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.vectorize_state import VectorizeState
 
@@ -45,8 +45,9 @@ def vectorize_step() -> rx.Component:
             ),
         ),
         rx.hstack(
-            rx.button(
+            tip_button(
                 "Build count matrix",
+                "Build the book × signature count matrix",
                 on_click=VectorizeState.build_matrix,
                 loading=VectorizeState.is_running,
                 size="2",

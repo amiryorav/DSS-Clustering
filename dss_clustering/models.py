@@ -64,6 +64,35 @@ class User(rx.Model, table=True):
     last_seen_at: datetime = Field(default_factory=_utcnow)
 
 
+class AnalysisPreset(rx.Model, table=True):
+    """A named ``AnalysisConfig`` snapshot, owned by a user.
+
+    Presets used to live in server memory for the browser session only, so they
+    disappeared on every redeploy and were never tied to the signed-in account.
+    """
+
+    __tablename__ = "analysis_presets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_analysis_presets_user_name"),
+    )
+
+    user_id: int = Field(
+        sa_column=Column(
+            Integer,
+            ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        )
+    )
+    name: str = Field(index=True)
+    config: dict = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False),
+    )
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class ManualCluster(rx.Model, table=True):
     """A hand-picked group of books, owned by a user."""
 

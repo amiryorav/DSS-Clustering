@@ -5,13 +5,24 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.feature_grid import feature_grid
+from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.components.help import help_panel, step_header
 from dss_clustering.pipeline.metrics import (
     COMPARE_ALL_OTHER,
     COMPARE_CORPUS,
     COMPARE_EXISTING_CLUSTER,
 )
+from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.manual_cluster_state import ManualClusterState
+
+
+def _tip_button(label: str, tip: str, **kwargs) -> rx.Component:
+    return rx.tooltip(
+        rx.button(label, **kwargs),
+        content=tip,
+        side="top",
+        side_offset=4,
+    )
 
 
 def _picked_chip(row: dict) -> rx.Component:
@@ -37,14 +48,16 @@ def _saved_group_row(group: dict) -> rx.Component:
             color="gray",
         ),
         rx.spacer(),
-        rx.button(
+        _tip_button(
             "Load",
+            "Load this saved group into the picker",
             size="1",
             variant="soft",
             on_click=ManualClusterState.load_group(group["id"]),
         ),
-        rx.button(
+        _tip_button(
             "Delete",
+            "Remove this group from your account",
             size="1",
             variant="soft",
             color_scheme="red",
@@ -81,21 +94,24 @@ def manual_cluster_step() -> rx.Component:
             color="gray",
         ),
         rx.hstack(
-            rx.button(
+            _tip_button(
                 "Start selecting",
+                "Clear the current pick and start a new group",
                 on_click=ManualClusterState.start_picking,
                 size="2",
                 variant=rx.cond(ManualClusterState.picking, "solid", "soft"),
                 color_scheme=rx.cond(ManualClusterState.picking, "orange", "gray"),
             ),
-            rx.button(
+            _tip_button(
                 "Done",
+                "Compare the picked books to the reference group",
                 on_click=ManualClusterState.done_picking,
                 size="2",
                 disabled=ManualClusterState.n_picked <= 0,
             ),
-            rx.button(
+            _tip_button(
                 "Clear",
+                "Clear the current pick without comparing",
                 on_click=ManualClusterState.clear_picked,
                 size="2",
                 variant="ghost",
@@ -109,7 +125,6 @@ def manual_cluster_step() -> rx.Component:
             align="center",
         ),
         rx.hstack(
-            rx.text("Compare against", size="2", white_space="nowrap"),
             rx.segmented_control.root(
                 rx.segmented_control.item("Corpus", value=COMPARE_CORPUS),
                 rx.segmented_control.item("All other", value=COMPARE_ALL_OTHER),
@@ -122,7 +137,7 @@ def manual_cluster_step() -> rx.Component:
             rx.cond(
                 ManualClusterState.comparison_scope_type != COMPARE_ALL_OTHER,
                 rx.select.root(
-                    rx.select.trigger(placeholder="Choose comparison group…"),
+                    rx.select.trigger(placeholder="Choose group…"),
                     rx.select.content(
                         rx.foreach(
                             ManualClusterState.comparison_options_rows,
@@ -164,52 +179,79 @@ def manual_cluster_step() -> rx.Component:
                 flex_wrap="wrap",
             ),
         ),
-        rx.hstack(
-            rx.input(
-                placeholder="Group name…",
-                value=ManualClusterState.saved_name,
-                on_change=ManualClusterState.set_saved_name,
-                size="2",
-                max_width="14rem",
-            ),
-            rx.button(
-                "Save group",
-                on_click=ManualClusterState.save_group,
-                size="2",
-                variant="soft",
-            ),
-            spacing="3",
-            align="center",
-        ),
-        rx.vstack(
-            rx.hstack(
-                rx.text("Your saved groups", size="2", weight="bold"),
-                rx.button(
-                    "Refresh",
-                    size="1",
-                    variant="ghost",
-                    on_click=ManualClusterState.load_saved_groups,
+        rx.cond(
+            AuthState.is_authenticated,
+            rx.vstack(
+                rx.hstack(
+                    rx.input(
+                        placeholder="Group name…",
+                        value=ManualClusterState.saved_name,
+                        on_change=ManualClusterState.set_saved_name,
+                        size="2",
+                        max_width="14rem",
+                    ),
+                    _tip_button(
+                        "Save group",
+                        "Store this book group under your account",
+                        on_click=ManualClusterState.save_group,
+                        size="2",
+                        variant="soft",
+                    ),
+                    spacing="3",
+                    align="center",
                 ),
-                spacing="2",
-                align="center",
-            ),
-            rx.cond(
-                ManualClusterState.saved_groups.length() > 0,
                 rx.vstack(
-                    rx.foreach(ManualClusterState.saved_groups, _saved_group_row),
+                    rx.hstack(
+                        rx.text("Your saved groups", size="2", weight="bold"),
+                        _tip_button(
+                            "Refresh",
+                            "Reload groups from your account",
+                            size="1",
+                            variant="ghost",
+                            on_click=ManualClusterState.load_saved_groups,
+                        ),
+                        spacing="2",
+                        align="center",
+                    ),
+                    rx.cond(
+                        ManualClusterState.saved_groups.length() > 0,
+                        rx.vstack(
+                            rx.foreach(
+                                ManualClusterState.saved_groups, _saved_group_row
+                            ),
+                            width="100%",
+                            spacing="2",
+                        ),
+                        rx.text(
+                            "No saved groups yet. Saved groups can be picked as "
+                            "X or Y in the data tables.",
+                            size="1",
+                            color="gray",
+                        ),
+                    ),
                     width="100%",
                     spacing="2",
+                    align="start",
                 ),
-                rx.text(
-                    "No saved groups yet. Saved groups are stored under your "
-                    "user id and can be picked as X or Y in the data tables.",
-                    size="1",
-                    color="gray",
-                ),
+                width="100%",
+                spacing="3",
+                align="start",
             ),
-            width="100%",
-            spacing="2",
-            align="start",
+            rx.callout(
+                rx.hstack(
+                    rx.text(
+                        "Sign in to save manual groups to your account.",
+                        size="2",
+                    ),
+                    rx.cond(AuthState.has_client_id, google_signin_button()),
+                    spacing="3",
+                    align="center",
+                    flex_wrap="wrap",
+                ),
+                icon="info",
+                color_scheme="gray",
+                width="100%",
+            ),
         ),
         rx.text(ManualClusterState.status_message, size="2", color="gray"),
         rx.cond(
@@ -240,31 +282,30 @@ def manual_cluster_step() -> rx.Component:
                     spacing="2",
                 ),
                 rx.grid(
-# Also wire glossary help into manual cluster result grids when present.
-                feature_grid(
-                    grid_id="manual-top",
-                    title="Top features",
-                    rows=ManualClusterState.top_rows,
-                    help_key="top_features",
-                    export_source="manual",
-                    export_kind="top",
-                ),
-                feature_grid(
-                    grid_id="manual-distinctive",
-                    title="Distinctive features",
-                    rows=ManualClusterState.distinctive_rows,
-                    help_key="distinctive_features",
-                    export_source="manual",
-                    export_kind="distinctive",
-                ),
-                feature_grid(
-                    grid_id="manual-gap",
-                    title="Gap features",
-                    rows=ManualClusterState.gap_rows,
-                    help_key="gap_features",
-                    export_source="manual",
-                    export_kind="gap",
-                ),
+                    feature_grid(
+                        grid_id="manual-top",
+                        title="Top features",
+                        rows=ManualClusterState.top_rows,
+                        help_key="top_features",
+                        export_source="manual",
+                        export_kind="top",
+                    ),
+                    feature_grid(
+                        grid_id="manual-distinctive",
+                        title="Distinctive features",
+                        rows=ManualClusterState.distinctive_rows,
+                        help_key="distinctive_features",
+                        export_source="manual",
+                        export_kind="distinctive",
+                    ),
+                    feature_grid(
+                        grid_id="manual-gap",
+                        title="Gap features",
+                        rows=ManualClusterState.gap_rows,
+                        help_key="gap_features",
+                        export_source="manual",
+                        export_kind="gap",
+                    ),
                     columns=rx.breakpoints(initial="1", md="3"),
                     spacing="4",
                     width="100%",

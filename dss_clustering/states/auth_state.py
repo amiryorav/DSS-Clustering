@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
 import reflex as rx
 from reflex_google_auth import GoogleAuthState
 
-from dss_clustering.repository import claim_or_create_google_user
+from dss_clustering.repository import claim_or_create_google_user, get_user_profile
+from dss_clustering.session import (
+    SESSION_COOKIE_NAME,
+    SESSION_MAX_AGE_SECONDS,
+    issue_session,
+    read_session,
+)
 from dss_clustering.states.user_state import UserState
 
 logger = logging.getLogger(__name__)
@@ -38,10 +45,20 @@ class AuthState(GoogleAuthState):
     # stalled login says which step failed instead of silently staying closed.
     auth_stage: str = "idle"
     dev_signed_in: bool = False
+    # Our own session, signed server-side. Google's credential expires in about
+    # an hour with no refresh token, so gating on it logged people out mid-run.
+    session_token: str = rx.Cookie(
+        "",
+        name=SESSION_COOKIE_NAME,
+        max_age=SESSION_MAX_AGE_SECONDS,
+        same_site="lax",
+    )
 
     @rx.var(cache=True)
     def is_authenticated(self) -> bool:
-        return bool((self.token_is_valid or self.dev_signed_in) and self.current_user_id)
+        # ``current_user_id`` is only ever set after Google verification or a
+        # valid signed cookie, so it is the session on its own.
+        return bool(self.current_user_id)
 
     @rx.var(cache=True)
     def has_client_id(self) -> bool:
@@ -116,12 +133,11 @@ class AuthState(GoogleAuthState):
         self.signed_in_name = str(info.get("name") or "")
         self.auth_message = ""
         self.auth_stage = "signed in"
+        self.session_token = issue_session(user_id)
         local.user_id = user_id
         logger.warning("auth: linked user_id=%s email=%s", user_id, self.signed_in_email)
 
-        from dss_clustering.states.manual_cluster_state import ManualClusterState
-
-        return ManualClusterState.load_saved_groups
+        return AuthState.load_user_data
 
     @rx.event
     async def dev_sign_in(self):
@@ -150,11 +166,18 @@ class AuthState(GoogleAuthState):
         self.signed_in_name = "Local developer"
         self.auth_message = ""
         self.auth_stage = "signed in (local development)"
+        self.session_token = issue_session(user_id)
         local.user_id = user_id
 
-        from dss_clustering.states.manual_cluster_state import ManualClusterState
+        return AuthState.load_user_data
 
-        return ManualClusterState.load_saved_groups
+    @rx.event
+    async def load_user_data(self):
+        """Pull the account's saved work in one place after any sign-in path."""
+        from dss_clustering.states.manual_cluster_state import ManualClusterState
+        from dss_clustering.states.saved_config_state import SavedConfigState
+
+        return [ManualClusterState.load_saved_groups, SavedConfigState.load_presets]
 
     @rx.event
     async def logout_user(self):
@@ -165,11 +188,39 @@ class AuthState(GoogleAuthState):
         self.signed_in_name = ""
         self.auth_message = ""
         self.auth_stage = "idle"
+        self.session_token = ""
         local = await self.get_state(UserState)
         local.user_id = 0
 
     @rx.event
+    async def restore_session(self):
+        """Re-open a session from the signed cookie, without Google."""
+        user_id = read_session(self.session_token)
+        if not user_id:
+            return
+
+        profile = await asyncio.to_thread(get_user_profile, user_id)
+        if profile is None:
+            # The row is gone (or this is a different database), so the token
+            # cannot be honoured; drop it instead of half-restoring.
+            logger.warning("auth: session cookie for unknown user_id=%s", user_id)
+            self.session_token = ""
+            return
+
+        self.current_user_id = user_id
+        self.signed_in_email = profile["email"]
+        self.signed_in_name = profile["display_name"]
+        self.auth_stage = "signed in (restored session)"
+        local = await self.get_state(UserState)
+        local.user_id = user_id
+        logger.warning("auth: restored session from cookie for user_id=%s", user_id)
+        return AuthState.load_user_data
+
+    @rx.event
     async def ensure_synced(self):
-        """Re-link DB user if a valid Google token is already in local storage."""
-        if self.token_is_valid and not self.current_user_id:
+        """Restore the session on page load: Google token first, then cookie."""
+        if self.current_user_id:
+            return
+        if self.token_is_valid:
             return AuthState.sync_user
+        return AuthState.restore_session

@@ -100,12 +100,12 @@ def _display_signature(signature: object) -> str:
 
 
 def series_to_rows(series: pd.Series, *, kind: str) -> list[dict]:
-    """Turn a ranked feature Series into AG Grid rows."""
+    """Turn a ranked feature Series into table rows (scores shown to 2 d.p.)."""
     return [
         {
             "rank": i + 1,
             "signature": _display_signature(sig),
-            "score": float(val),
+            "score": f"{float(val):.2f}",
             "kind": kind,
         }
         for i, (sig, val) in enumerate(series.items())

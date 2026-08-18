@@ -6,7 +6,7 @@ import reflex as rx
 
 from dss_clustering.colors import COLOR_PALETTE
 from dss_clustering.components.export_bar import plot_export_bar
-from dss_clustering.components.help import help_button, help_panel, step_header
+from dss_clustering.components.help import help_button, help_panel, step_header, tip_button
 from dss_clustering.states.export_state import ExportState
 from dss_clustering.states.plot_state import (
     COLOR_CLUSTER,
@@ -16,8 +16,97 @@ from dss_clustering.states.plot_state import (
     METHOD_SVD,
     METHOD_TSNE,
     METHOD_UMAP,
+    PANEL_SINGLE,
+    PANEL_SVD_A,
+    PANEL_SVD_B,
+    PANEL_TSNE,
+    PANEL_UMAP,
+    ROTATE_STEP_DEGREES,
+    ZOOM_FACTOR,
     PlotState,
 )
+
+# Buttons drive the camera, so Plotly's own modebar would only duplicate them.
+PLOT_CONFIG = {
+    "scrollZoom": True,
+    "displaylogo": False,
+    "displayModeBar": False,
+    "responsive": True,
+}
+
+
+def _pad_icon(icon: str, tip: str, on_click) -> rx.Component:
+    return rx.tooltip(
+        rx.icon_button(
+            rx.icon(icon, size=14),
+            size="1",
+            variant="soft",
+            on_click=on_click,
+            aria_label=tip,
+        ),
+        content=tip,
+        side="top",
+        side_offset=4,
+    )
+
+
+def _camera_pad(panel: str) -> rx.Component:
+    """Zoom / rotate / reset controls for one 3D scene."""
+    return rx.hstack(
+        _pad_icon("zoom-in", "Zoom in", PlotState.zoom_panel(panel, ZOOM_FACTOR)),
+        _pad_icon(
+            "zoom-out", "Zoom out", PlotState.zoom_panel(panel, 1 / ZOOM_FACTOR)
+        ),
+        rx.box(width="0.5rem"),
+        _pad_icon(
+            "arrow-left",
+            "Rotate left",
+            PlotState.rotate_panel(panel, -ROTATE_STEP_DEGREES, 0),
+        ),
+        _pad_icon(
+            "arrow-right",
+            "Rotate right",
+            PlotState.rotate_panel(panel, ROTATE_STEP_DEGREES, 0),
+        ),
+        _pad_icon(
+            "arrow-up",
+            "Tilt up",
+            PlotState.rotate_panel(panel, 0, ROTATE_STEP_DEGREES),
+        ),
+        _pad_icon(
+            "arrow-down",
+            "Tilt down",
+            PlotState.rotate_panel(panel, 0, -ROTATE_STEP_DEGREES),
+        ),
+        rx.box(width="0.5rem"),
+        _pad_icon("locate-fixed", "Reset view", PlotState.reset_panel_view(panel)),
+        spacing="1",
+        align="center",
+        flex_wrap="wrap",
+    )
+
+
+def _grid_panel(panel: str, title, figure) -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            rx.text(title, size="2", weight="bold"),
+            rx.spacer(),
+            _camera_pad(panel),
+            width="100%",
+            align="center",
+        ),
+        rx.plotly(
+            data=figure,
+            config=PLOT_CONFIG,
+            on_click=PlotState.on_point_click,
+            width="100%",
+        ),
+        width="100%",
+        spacing="2",
+        border="1px solid var(--gray-a6)",
+        border_radius="md",
+        padding="0.5rem",
+    )
 
 
 def _dim_input(label: str, value, on_change, disabled=False) -> rx.Component:
@@ -200,9 +289,18 @@ def plot_step() -> rx.Component:
                 value=PlotState.label_mode,
                 on_change=PlotState.set_label_mode,
             ),
-            rx.button(
+            tip_button(
                 "Refresh plot",
+                "Redraw the 3D scatter with the current settings",
                 on_click=PlotState.recompute,
+                size="2",
+                variant="soft",
+                loading=PlotState.is_fitting_viz,
+            ),
+            tip_button(
+                rx.cond(PlotState.show_grid, "Single view", "Compare 4 views"),
+                "Show SVD 0-1-2, SVD 1-2-3, UMAP and t-SNE side by side",
+                on_click=PlotState.toggle_grid,
                 size="2",
                 variant="soft",
                 loading=PlotState.is_fitting_viz,
@@ -228,8 +326,9 @@ def plot_step() -> rx.Component:
             rx.hstack(
                 _num("n_neighbors", PlotState.umap_n_neighbors, PlotState.set_umap_n_neighbors),
                 _num("min_dist", PlotState.umap_min_dist, PlotState.set_umap_min_dist),
-                rx.button(
+                tip_button(
                     "Fit UMAP",
+                    "Compute UMAP (SVD-compressed for speed); may take a few seconds",
                     on_click=PlotState.refit_viz,
                     size="2",
                     loading=PlotState.is_fitting_viz,
@@ -247,8 +346,9 @@ def plot_step() -> rx.Component:
                     PlotState.tsne_perplexity,
                     PlotState.set_tsne_perplexity,
                 ),
-                rx.button(
+                tip_button(
                     "Fit t-SNE",
+                    "Compute t-SNE (SVD-compressed for speed); may take a few seconds",
                     on_click=PlotState.refit_viz,
                     size="2",
                     loading=PlotState.is_fitting_viz,
@@ -261,31 +361,90 @@ def plot_step() -> rx.Component:
         rx.text(PlotState.status_message, size="2", color="gray"),
         rx.text(ExportState.status_message, size="2", color="gray"),
         rx.cond(
-            PlotState.has_figure,
-            rx.vstack(
-                plot_export_bar(kind="plot"),
-                rx.box(
-                    rx.plotly(
-                        data=PlotState.figure,
-                        config={
-                            "scrollZoom": True,
-                            "displaylogo": False,
-                            "responsive": True,
-                        },
-                        on_click=PlotState.on_point_click,
+            PlotState.show_grid,
+            rx.cond(
+                PlotState.has_grid,
+                rx.vstack(
+                    rx.hstack(
+                        tip_button(
+                            "Rebuild grid",
+                            "Refit all four views with the current settings",
+                            on_click=PlotState.build_grid,
+                            size="1",
+                            variant="soft",
+                            loading=PlotState.is_fitting_viz,
+                        ),
+                        rx.text(
+                            "Colours, labels, and book visibility update all four views automatically.",
+                            size="1",
+                            color="gray",
+                        ),
+                        spacing="2",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    rx.grid(
+                        _grid_panel(
+                            PANEL_SVD_A,
+                            PlotState.grid_title_svd_a,
+                            PlotState.figure_svd_a,
+                        ),
+                        _grid_panel(
+                            PANEL_SVD_B,
+                            PlotState.grid_title_svd_b,
+                            PlotState.figure_svd_b,
+                        ),
+                        _grid_panel(
+                            PANEL_UMAP,
+                            PlotState.grid_title_umap,
+                            PlotState.figure_umap,
+                        ),
+                        _grid_panel(
+                            PANEL_TSNE,
+                            PlotState.grid_title_tsne,
+                            PlotState.figure_tsne,
+                        ),
+                        # Radix's md starts at 1024px, which leaves laptops in a
+                        # single column; sm (768px) is where two panels still fit.
+                        columns=rx.breakpoints(initial="1", sm="2"),
+                        spacing="3",
                         width="100%",
                     ),
                     width="100%",
-                    max_width="1100px",
-                    margin_x="auto",
-                    border="1px solid var(--gray-a6)",
-                    border_radius="md",
-                    padding="0.5rem",
-                    overflow="hidden",
+                    spacing="2",
                 ),
-                width="100%",
-                spacing="2",
-                align="center",
+            ),
+            rx.cond(
+                PlotState.has_figure,
+                rx.vstack(
+                    rx.hstack(
+                        plot_export_bar(kind="plot"),
+                        rx.spacer(),
+                        _camera_pad(PANEL_SINGLE),
+                        width="100%",
+                        max_width="1100px",
+                        align="center",
+                        flex_wrap="wrap",
+                    ),
+                    rx.box(
+                        rx.plotly(
+                            data=PlotState.figure,
+                            config=PLOT_CONFIG,
+                            on_click=PlotState.on_point_click,
+                            width="100%",
+                        ),
+                        width="100%",
+                        max_width="1100px",
+                        margin_x="auto",
+                        border="1px solid var(--gray-a6)",
+                        border_radius="md",
+                        padding="0.5rem",
+                        overflow="hidden",
+                    ),
+                    width="100%",
+                    spacing="2",
+                    align="center",
+                ),
             ),
         ),
         rx.cond(
@@ -317,20 +476,23 @@ def plot_step() -> rx.Component:
                         white_space="nowrap",
                     ),
                     rx.spacer(),
-                    rx.button(
+                    tip_button(
                         "Show matching",
+                        "Make search-matching books visible on the plot",
                         size="1",
                         variant="soft",
                         on_click=PlotState.show_matching_books,
                     ),
-                    rx.button(
+                    tip_button(
                         "Hide matching",
+                        "Hide search-matching books from the plot",
                         size="1",
                         variant="soft",
                         on_click=PlotState.hide_matching_books,
                     ),
-                    rx.button(
+                    tip_button(
                         "Show all",
+                        "Show every book on the plot again",
                         size="1",
                         variant="soft",
                         on_click=PlotState.show_all_books,

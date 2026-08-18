@@ -9,6 +9,7 @@ from dss_clustering.components.landing import landing_page
 from dss_clustering.components.layout import page_shell
 from dss_clustering.components.wizard import analysis_wizard
 from dss_clustering.models import (  # noqa: F401
+    AnalysisPreset,
     Document,
     LemmaRow,
     ManualCluster,
@@ -23,6 +24,7 @@ from dss_clustering.states.nav_state import (
     TAB_HOME,
     NavState,
 )
+from dss_clustering.states.saved_config_state import SavedConfigState
 
 
 def _main_body() -> rx.Component:
@@ -45,6 +47,7 @@ def index() -> rx.Component:
         on_mount=[
             DataState.load_documents,
             ManualClusterState.load_saved_groups,
+            SavedConfigState.load_presets,
             AuthState.ensure_synced,
         ],
     )

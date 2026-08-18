@@ -199,10 +199,20 @@ class DataState(rx.State):
                 self.document_labels = labels
                 self.document_books = books
                 self.document_corpus = corpus_of
-                eligible = set(labels)
-                self.selected_document_ids = [
-                    i for i in self.selected_document_ids if str(i) in eligible
+                # First load: select every eligible book. Later reloads keep the
+                # user's picks, dropping only ids that disappeared from the catalog.
+                eligible_ids = [
+                    doc["id"]
+                    for docs in by_corpus.values()
+                    for doc in docs
                 ]
+                eligible = set(eligible_ids)
+                if not self.selected_document_ids:
+                    self.selected_document_ids = sorted(eligible_ids)
+                else:
+                    self.selected_document_ids = [
+                        i for i in self.selected_document_ids if i in eligible
+                    ]
                 self.status_message = (
                     f"Loaded {total} books/scrolls "
                     f"(min {'non-empty lemma' if lemma_mode else 'valid'} rows "

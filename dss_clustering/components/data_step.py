@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.help import help_panel, step_header
+from dss_clustering.components.help import help_panel, step_header, tip_button
 from dss_clustering.states.data_state import DataState
 
 
@@ -58,10 +58,7 @@ def data_step() -> rx.Component:
         step_header("Data", "data"),
         help_panel("data"),
         rx.text(
-            "Choose which books and scrolls to include. "
-            "Only NNN rows count; lemma mode also excludes blank clean_lemma rows, "
-            "matching the original scripts' minimum-entries filters. "
-            "Identity colors are set later on the 3D plot.",
+            "Choose which books and scrolls to include.",
             color="gray",
         ),
         rx.hstack(
@@ -80,8 +77,9 @@ def data_step() -> rx.Component:
                     on_change=DataState.set_min_entries,
                     width="6rem",
                 ),
-                rx.button(
+                tip_button(
                     "Reload",
+                    "Reload the book catalog from the database",
                     on_click=DataState.load_documents,
                     loading=DataState.is_loading,
                     size="2",
@@ -89,13 +87,15 @@ def data_step() -> rx.Component:
                 spacing="2",
                 align="center",
             ),
-            rx.button(
+            tip_button(
                 "Select all visible",
+                "Select every book currently shown (after search)",
                 on_click=DataState.select_all_visible,
                 variant="soft",
             ),
-            rx.button(
+            tip_button(
                 "Clear selection",
+                "Deselect all books",
                 on_click=DataState.clear_selection,
                 variant="soft",
             ),

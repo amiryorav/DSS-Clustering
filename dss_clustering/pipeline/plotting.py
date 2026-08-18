@@ -16,6 +16,9 @@ def make_3d_scatter(
     document_ids: list[int],
     axis_titles: tuple[str, str, str],
     show_labels: bool,
+    height: int = 780,
+    uirevision: str = "plot-camera",
+    marker_size: int = 6,
 ) -> go.Figure:
     """Identity- or cluster-colored 3D scatter of books (spec §8.6)."""
     mode = "markers+text" if show_labels else "markers"
@@ -33,7 +36,7 @@ def make_3d_scatter(
                 # Reflex does not consistently deserialize in click payloads.
                 customdata=[[int(document_id)] for document_id in document_ids],
                 marker={
-                    "size": 6,
+                    "size": marker_size,
                     "color": colors,
                     "opacity": 0.9,
                     "line": {"width": 1, "color": "#222"},
@@ -48,10 +51,12 @@ def make_3d_scatter(
     )
     fig.update_layout(
         margin={"l": 0, "r": 0, "t": 30, "b": 0},
-        height=780,
+        height=height,
         # Keep the user's camera stable when unrelated Reflex state updates
-        # cause react-plotly.js to receive the figure again.
-        uirevision="plot-camera",
+        # cause react-plotly.js to receive the figure again. The zoom/rotate
+        # buttons bump this value, which is what lets a programmatic camera
+        # override the camera the user last dragged to.
+        uirevision=uirevision,
         scene={
             "xaxis_title": axis_titles[0],
             "yaxis_title": axis_titles[1],

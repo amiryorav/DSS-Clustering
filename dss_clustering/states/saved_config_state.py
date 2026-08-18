@@ -1,12 +1,17 @@
-"""Session-only AnalysisConfig presets (spec §8.10, local-only)."""
+"""Named AnalysisConfig presets, stored per user (spec §8.10)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import asyncio
 
 import reflex as rx
 
 from dss_clustering.pipeline.config import AnalysisConfig
+from dss_clustering.repository import (
+    delete_analysis_preset,
+    list_analysis_presets,
+    save_analysis_preset,
+)
 from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import DataState
 from dss_clustering.states.dendrogram_state import DendrogramState
@@ -21,16 +26,39 @@ from dss_clustering.states.vectorize_state import VectorizeState
 
 
 class SavedConfigState(rx.State):
-    """Save / load named AnalysisConfig snapshots for this browser session."""
+    """Save / load named AnalysisConfig snapshots owned by the current user."""
 
     presets: list[dict] = []
     preset_name: str = ""
     status_message: str = ""
-    _next_id: int = 1
+
+    async def _owner_user_id(self) -> int:
+        """Only a signed-in account may own presets (guests analyze without saving)."""
+        from dss_clustering.states.auth_state import AuthState
+
+        auth = await self.get_state(AuthState)
+        return int(auth.current_user_id) if auth.current_user_id else 0
 
     @rx.event
     def set_preset_name(self, value: str):
         self.preset_name = value
+
+    @rx.event(background=True)
+    async def load_presets(self):
+        """Background so page mount does not block Start analysis."""
+        async with self:
+            await self.reload_presets()
+
+    async def reload_presets(self) -> None:
+        user_id = await self._owner_user_id()
+        if not user_id:
+            self.presets = []
+            return
+        try:
+            self.presets = await asyncio.to_thread(list_analysis_presets, user_id)
+        except Exception as exc:  # noqa: BLE001
+            self.presets = []
+            self.status_message = f"Could not load presets: {exc}"
 
     @rx.event
     async def save(self):
@@ -38,16 +66,40 @@ class SavedConfigState(rx.State):
         if not name:
             self.status_message = "Enter a name for this configuration."
             return
+
+        user_id = await self._owner_user_id()
+        if not user_id:
+            self.status_message = (
+                "Sign in to save presets to your account. Guests can still "
+                "run the analysis without saving."
+            )
+            return
+
         config = await self._snapshot()
-        entry = {
-            "id": self._next_id,
-            "name": name,
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"),
-            "config": config.to_dict(),
-        }
-        self._next_id += 1
-        self.presets = [*self.presets, entry]
-        self.status_message = f"Saved configuration '{name}' for this session."
+        try:
+            await asyncio.to_thread(
+                save_analysis_preset,
+                user_id,
+                name=name,
+                config=config.to_dict(),
+            )
+            self.presets = await asyncio.to_thread(list_analysis_presets, user_id)
+        except Exception as exc:  # noqa: BLE001
+            self.status_message = f"Save failed: {exc}"
+            return
+        self.status_message = f"Saved preset '{name}' to your account."
+
+    @rx.event
+    async def delete(self, preset_id: int):
+        user_id = await self._owner_user_id()
+        if not user_id:
+            return
+        try:
+            await asyncio.to_thread(delete_analysis_preset, user_id, int(preset_id))
+            self.presets = await asyncio.to_thread(list_analysis_presets, user_id)
+            self.status_message = "Deleted preset."
+        except Exception as exc:  # noqa: BLE001
+            self.status_message = f"Delete failed: {exc}"
 
     @rx.event
     async def load(self, preset_id: int):

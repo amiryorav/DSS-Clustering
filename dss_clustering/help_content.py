@@ -10,12 +10,13 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
     # ----- per-step -----
     "presets": {
         "title": "Analysis presets",
-        "summary": "Save or reload the current analysis controls for this browser session.",
+        "summary": "Save or reload named analysis controls under your account.",
         "body": (
-            "Snapshot the current Data→Dendrogram controls under a name for "
-            "this browser session. Loading a preset restores those controls "
-            "and rebuilds the pipeline. Presets are session-only; manual book "
-            "groups are stored separately under your Google account."
+            "Guests can run the full pipeline without signing in. Sign in to "
+            "snapshot the current Data→Dendrogram controls under a name. "
+            "Loading a preset restores those controls and rebuilds the "
+            "pipeline. Presets are stored under your account alongside saved "
+            "manual book groups."
         ),
         "group": "Pipeline",
     },
@@ -91,6 +92,11 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
             "Dendrogram-cluster coloring uses the current cut and the same "
             "palette as the tree. Rotating the plot also updates the camera "
             "used by PNG and PDF exports. "
+            "The zoom, rotate, and reset buttons above each scene move its "
+            "camera without touching the mouse; each scene keeps its own view. "
+            "'Compare 4 views' shows SVD dims 0,1,2, SVD dims 1,2,3, UMAP, and "
+            "t-SNE at once. Colour, label, and visibility changes update all "
+            "four panels automatically; 'Rebuild grid' only refits projections. "
             "Clicking a point starts a fresh manual group when picking is "
             "inactive, then toggles that book in the group."
         ),
@@ -235,8 +241,10 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "body": (
             "A nonlinear 3D layout of the active matrix for exploration. "
             "It does not feed the dendrogram, tables, or metrics. "
-            "n_neighbors and min_dist trade local versus global structure "
-            "in the drawing."
+            "The fit first compresses the wide count matrix with TruncatedSVD "
+            "(50 components) so UMAP finishes in seconds instead of stalling "
+            "on thousands of sparse features. n_neighbors and min_dist trade "
+            "local versus global structure in the drawing."
         ),
         "group": "Methods",
     },

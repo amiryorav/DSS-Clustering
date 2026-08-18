@@ -146,7 +146,7 @@ def write_pdf_table(
             [
                 str(row.get("rank", "")),
                 str(row.get("signature", "")),
-                f"{float(row.get('score', 0.0)):.6g}",
+                str(row.get("score", "")),
             ]
         )
     table = Table(data, colWidths=[40, 340, 100])

@@ -264,7 +264,7 @@ class DendrogramState(rx.State):
         from dss_clustering.states.table_state import TableState
         from dss_clustering.states.manual_cluster_state import ManualClusterState
 
-        yield PlotState.recompute
+        yield PlotState.refresh_visible_plots
         yield TableState.recompute
         yield ManualClusterState.refresh_comparison_options
         yield BusyState.release

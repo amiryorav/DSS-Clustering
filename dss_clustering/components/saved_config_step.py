@@ -1,23 +1,54 @@
-"""UI for session AnalysisConfig presets (spec §8.10, local-only)."""
+"""UI for saved AnalysisConfig presets (spec §8.10)."""
 
 from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.components.help import help_button, help_panel
+from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.saved_config_state import SavedConfigState
 
 
+def _tip_button(label: str, tip: str, **kwargs) -> rx.Component:
+    return rx.tooltip(
+        rx.button(label, **kwargs),
+        content=tip,
+        side="top",
+        side_offset=4,
+    )
+
+
 def _preset_row(preset: dict) -> rx.Component:
+    """One preset line. Kept narrow so the buttons sit beside the name."""
     return rx.hstack(
-        rx.text(preset["name"], weight="medium"),
-        rx.text(preset["created_at"], size="1", color="gray"),
-        rx.spacer(),
-        rx.button(
+        rx.text(
+            preset["name"],
+            weight="medium",
+            overflow="hidden",
+            text_overflow="ellipsis",
+            white_space="nowrap",
+        ),
+        rx.text(
+            preset["created_at"],
+            size="1",
+            color="gray",
+            white_space="nowrap",
+        ),
+        _tip_button(
             "Load",
+            "Restore this preset and rebuild the pipeline",
             size="1",
             variant="soft",
             on_click=SavedConfigState.load(preset["id"]),
+        ),
+        _tip_button(
+            "Delete",
+            "Remove this preset from your account",
+            size="1",
+            variant="ghost",
+            color_scheme="red",
+            on_click=SavedConfigState.delete(preset["id"]),
         ),
         width="100%",
         align="center",
@@ -26,7 +57,7 @@ def _preset_row(preset: dict) -> rx.Component:
 
 
 def saved_config_step() -> rx.Component:
-    """Save / load named pipeline configurations for this session."""
+    """Save / load named pipeline configurations for the current account."""
     return rx.vstack(
         rx.hstack(
             rx.heading("Analysis presets", size="5"),
@@ -36,37 +67,63 @@ def saved_config_step() -> rx.Component:
         ),
         help_panel("presets"),
         rx.text(
-            "Save the current Data→Dendrogram controls as a named preset for "
-            "this browser session (not persisted to the database).",
+            "Guests can run the full analysis with the defaults below. "
+            "Sign in if you want to save or reload named Data→Dendrogram "
+            "snapshots under your account.",
             color="gray",
             size="2",
         ),
-        rx.hstack(
-            rx.input(
-                placeholder="Preset name…",
-                value=SavedConfigState.preset_name,
-                on_change=SavedConfigState.set_preset_name,
-                size="2",
-                max_width="16rem",
-                width="100%",
-            ),
-            rx.button(
-                "Save configuration",
-                on_click=SavedConfigState.save,
-                size="2",
-            ),
-            spacing="3",
-            align="center",
-            flex_wrap="wrap",
-        ),
         rx.cond(
-            SavedConfigState.presets.length() > 0,
+            AuthState.is_authenticated,
             rx.vstack(
-                rx.foreach(SavedConfigState.presets, _preset_row),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Preset name…",
+                        value=SavedConfigState.preset_name,
+                        on_change=SavedConfigState.set_preset_name,
+                        size="2",
+                        max_width="16rem",
+                        width="100%",
+                    ),
+                    _tip_button(
+                        "Save configuration",
+                        "Store the current controls under your account",
+                        on_click=SavedConfigState.save,
+                        size="2",
+                    ),
+                    spacing="3",
+                    align="center",
+                    flex_wrap="wrap",
+                ),
+                rx.cond(
+                    SavedConfigState.presets.length() > 0,
+                    rx.vstack(
+                        rx.foreach(SavedConfigState.presets, _preset_row),
+                        width="100%",
+                        max_width="30rem",
+                        spacing="2",
+                    ),
+                    rx.text("No saved presets yet.", size="2", color="gray"),
+                ),
                 width="100%",
-                spacing="2",
+                spacing="3",
+                align="start",
             ),
-            rx.text("No saved presets yet.", size="2", color="gray"),
+            rx.callout(
+                rx.hstack(
+                    rx.text(
+                        "Working as guest. Sign in to save presets to your account.",
+                        size="2",
+                    ),
+                    rx.cond(AuthState.has_client_id, google_signin_button()),
+                    spacing="3",
+                    align="center",
+                    flex_wrap="wrap",
+                ),
+                icon="info",
+                color_scheme="gray",
+                width="100%",
+            ),
         ),
         rx.text(SavedConfigState.status_message, size="2", color="gray"),
         spacing="3",

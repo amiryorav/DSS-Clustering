@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import reflex as rx
 from sqlmodel import select
 
-from dss_clustering.models import ManualCluster, User
+from dss_clustering.models import AnalysisPreset, ManualCluster, User
 
 
 def _utcnow() -> datetime:
@@ -105,6 +105,79 @@ def claim_or_create_google_user(
         session.commit()
         session.refresh(user)
         return int(user.id or 0)
+
+
+def get_user_profile(user_id: int) -> dict | None:
+    """Email / name for a user id, used when restoring a session cookie."""
+    if not user_id:
+        return None
+    with rx.session() as session:
+        user = session.get(User, int(user_id))
+        if user is None:
+            return None
+        return {
+            "id": int(user.id or 0),
+            "email": user.email or "",
+            "display_name": user.display_name or "",
+            "google_sub": user.google_sub or "",
+        }
+
+
+def preset_to_dict(preset: AnalysisPreset) -> dict:
+    return {
+        "id": int(preset.id or 0),
+        "name": preset.name,
+        "config": dict(preset.config or {}),
+        "created_at": _fmt(preset.created_at),
+    }
+
+
+def list_analysis_presets(user_id: int) -> list[dict]:
+    if not user_id:
+        return []
+    with rx.session() as session:
+        rows = session.exec(
+            select(AnalysisPreset)
+            .where(AnalysisPreset.user_id == user_id)
+            .order_by(AnalysisPreset.name)
+        ).all()
+        return [preset_to_dict(row) for row in rows]
+
+
+def save_analysis_preset(user_id: int, *, name: str, config: dict) -> dict:
+    """Insert or overwrite the user's preset with this name."""
+    if not user_id:
+        raise ValueError("No user id available for saving.")
+    with rx.session() as session:
+        preset = session.exec(
+            select(AnalysisPreset)
+            .where(AnalysisPreset.user_id == user_id)
+            .where(AnalysisPreset.name == name)
+        ).first()
+        if preset is None:
+            preset = AnalysisPreset(user_id=user_id, name=name)
+        preset.config = dict(config)
+        preset.updated_at = _utcnow()
+        session.add(preset)
+        session.commit()
+        session.refresh(preset)
+        return preset_to_dict(preset)
+
+
+def delete_analysis_preset(user_id: int, preset_id: int) -> bool:
+    if not user_id:
+        return False
+    with rx.session() as session:
+        preset = session.exec(
+            select(AnalysisPreset)
+            .where(AnalysisPreset.user_id == user_id)
+            .where(AnalysisPreset.id == preset_id)
+        ).first()
+        if preset is None:
+            return False
+        session.delete(preset)
+        session.commit()
+        return True
 
 
 def list_manual_clusters(user_id: int) -> list[dict]:

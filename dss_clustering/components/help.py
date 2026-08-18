@@ -9,6 +9,16 @@ from dss_clustering.states.help_state import HelpState
 from dss_clustering.states.nav_state import NavState
 
 
+def tip_button(label: str, tip: str, **kwargs) -> rx.Component:
+    """Action button with a hover tip strip."""
+    return rx.tooltip(
+        rx.button(label, **kwargs),
+        content=tip,
+        side="top",
+        side_offset=4,
+    )
+
+
 def help_button(key: str) -> rx.Component:
     """Small ghost button that toggles a short inline tip."""
     entry = help_entry(key)

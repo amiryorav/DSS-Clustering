@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
+from dss_clustering.components.help import tip_button
 from dss_clustering.site_content import ABOUT_BODY, ABOUT_SUMMARY, ABOUT_TITLE
 from dss_clustering.states.nav_state import NavState
 from dss_clustering.styles import ACCENT, BORDER, BRAND_NAME, BRAND_TAGLINE
@@ -41,14 +42,16 @@ def landing_page() -> rx.Component:
             rx.heading(BRAND_NAME, size="9", weight="bold"),
             rx.text(BRAND_TAGLINE, size="4", color="gray", max_width="40rem"),
             rx.hstack(
-                rx.button(
+                tip_button(
                     "Start analysis",
+                    "Open the analysis wizard (sign-in optional)",
                     size="3",
                     color_scheme=ACCENT,
                     on_click=NavState.start_analysis,
                 ),
-                rx.button(
+                tip_button(
                     "How to use",
+                    "Open the walkthrough and help topics",
                     size="3",
                     variant="soft",
                     on_click=NavState.go_help,
@@ -72,7 +75,7 @@ def landing_page() -> rx.Component:
             ),
             _capability(
                 "Save and export",
-                "Keep manual book groups under your Google account and export plots or tables with clear branding.",
+                "Sign in to keep presets and manual book groups under your account, then export plots or tables.",
             ),
             columns=rx.breakpoints(initial="1", md="3"),
             spacing="4",

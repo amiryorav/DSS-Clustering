@@ -29,7 +29,6 @@ from dss_clustering.states.data_state import (
 from dss_clustering.states.dendrogram_state import DendrogramState
 from dss_clustering.states.feature_state import FeatureState
 from dss_clustering.states.rescale_state import RescaleState
-from dss_clustering.states.user_state import UserState
 
 
 class ManualClusterState(rx.State):
@@ -280,14 +279,11 @@ class ManualClusterState(rx.State):
             self.status_message = f"Manual compare failed: {exc}"
 
     async def _owner_user_id(self) -> int:
-        """Prefer the Google-linked user id when signed in."""
+        """Saved groups belong to the signed-in account only."""
         from dss_clustering.states.auth_state import AuthState
 
         auth = await self.get_state(AuthState)
-        if auth.current_user_id:
-            return int(auth.current_user_id)
-        user = await self.get_state(UserState)
-        return await user.ensure_user_id()
+        return int(auth.current_user_id) if auth.current_user_id else 0
 
     async def reload_saved_groups(self) -> None:
         """Refresh the saved-cluster list for the signed-in / local user."""
@@ -320,7 +316,7 @@ class ManualClusterState(rx.State):
         user_id = await self._owner_user_id()
         if not user_id:
             self.status_message = (
-                "Could not resolve a user id, so the cluster was not saved."
+                "Sign in to save this group to your account."
             )
             return
 
