@@ -18,7 +18,6 @@ ANCHOR_COMPARE = "compare"
 ANCHOR_RUN = "run"
 ANCHOR_MAP = "map"
 ANCHOR_TREE = "tree"
-ANCHOR_GROUPS = "groups"
 ANCHOR_NUMBERS = "numbers"
 ANCHOR_SAVE = "save"
 

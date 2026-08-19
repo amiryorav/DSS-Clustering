@@ -45,16 +45,16 @@ HOW_TO_STEPS: list[dict[str, str]] = [
         "title": "2 · Words or grammar",
         "body": (
             "Compare the texts by the words they use, or by their grammar. "
-            "Words is a good starting point; deeper feature choices live under "
-            "'Under the hood'."
+            "Words is a good starting point; deeper feature choices live behind "
+            "the gear (configuration) icon."
         ),
     },
     {
         "title": "3 · Run the analysis",
         "body": (
             "One button counts the features, weights them, and reduces the "
-            "numbers behind the scenes. The weighting and dimensionality "
-            "controls are tucked under the hood if you want them."
+            "numbers behind the scenes. Weighting and dimensionality options "
+            "are behind the gear icon if you want them."
         ),
     },
     {
@@ -66,27 +66,19 @@ HOW_TO_STEPS: list[dict[str, str]] = [
         ),
     },
     {
-        "title": "5 · The dendrogram",
+        "title": "5 · The Tree",
         "body": (
             "The same closeness drawn as a tree. Slide the cut line to split "
             "the books into more or fewer clusters."
         ),
     },
     {
-        "title": "6 · Your own groups",
+        "title": "6 · The numbers",
         "body": (
-            "Click books on the map to gather them into a group, then see what "
-            "makes that group stand out. Groups you name are usable in the "
-            "comparison tables straight away; they last for your visit, and "
-            "signing in keeps them for next time."
-        ),
-    },
-    {
-        "title": "7 · The numbers",
-        "body": (
-            "Compare any two groups — a book, a family from the tree, one of "
+            "Compare any two groups — a book, a cluster from the tree, one of "
             "your groups, or a whole corpus — and read which features set them "
-            "apart. Export plots and tables anytime."
+            "apart. Use Create our own groups when you want a hand-picked set. "
+            "Export plots and tables anytime."
         ),
     },
 ]

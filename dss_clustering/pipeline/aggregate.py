@@ -12,7 +12,7 @@ The SQL signature expression must stay byte-identical to
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 import scipy.sparse as sp
@@ -66,6 +66,10 @@ def signature_count_query(
     *,
     row_type: str,
     ignore_proper_names: bool,
+    excluded_fragments: Mapping[int, Sequence[str]]
+    | Mapping[str, Sequence[str]]
+    | None = None,
+    document_books: Mapping[str, str] | None = None,
 ):
     """Select ``(document_id, signature, count)`` grouped in the database."""
     if not selected_columns:
@@ -94,6 +98,14 @@ def signature_count_query(
     if ignore_proper_names:
         # NULL subtypes are kept, matching the pandas `!=` comparison.
         query = query.where(LemmaRow.subtype.is_distinct_from(PROPER_NAME_SUBTYPE))
+    if excluded_fragments:
+        from dss_clustering.pipeline.fragments import exclusion_sql_filter
+
+        clause = exclusion_sql_filter(
+            excluded_fragments, document_books=document_books
+        )
+        if clause is not None:
+            query = query.where(clause)
     return query.group_by(LemmaRow.document_id, signature)
 
 

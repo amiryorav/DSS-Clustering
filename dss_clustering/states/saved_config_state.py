@@ -129,6 +129,9 @@ class SavedConfigState(rx.State):
         dendro = await self.get_state(DendrogramState)
 
         data.selected_document_ids = list(config.selected_document_ids)
+        data.excluded_fragments = {
+            str(k): list(v) for k, v in (config.excluded_fragments or {}).items()
+        }
 
         if config.feature_mode in (MODE_LEMMA, MODE_MORPHOLOGY):
             features.mode = config.feature_mode
@@ -190,4 +193,9 @@ class SavedConfigState(rx.State):
             linkage_method=dendro.linkage_method,
             distance_metric=dendro.distance_metric,
             cut_height=float(dendro.cut_height),
+            excluded_fragments={
+                str(k): list(v)
+                for k, v in (data.excluded_fragments or {}).items()
+                if v
+            },
         )

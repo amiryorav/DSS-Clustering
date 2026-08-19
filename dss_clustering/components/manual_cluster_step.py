@@ -1,16 +1,10 @@
-"""UI for manual cluster selection (spec §8.9)."""
+"""UI for manual group selection — pick and save books, no comparison here."""
 
 from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.feature_grid import feature_grid
 from dss_clustering.components.google_signin import google_signin_button
-from dss_clustering.pipeline.metrics import (
-    COMPARE_ALL_OTHER,
-    COMPARE_CORPUS,
-    COMPARE_EXISTING_CLUSTER,
-)
 from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.manual_cluster_state import ManualClusterState
 
@@ -73,21 +67,8 @@ def _saved_group_row(group: dict) -> rx.Component:
     )
 
 
-def _comparison_option(option: dict) -> rx.Component:
-    return rx.select.item(option["label"], value=option["value"])
-
-
-def _comparison_member(row: dict) -> rx.Component:
-    return rx.badge(
-        row["label"],
-        title="Document " + row["id"].to(str),
-        variant="soft",
-        size="1",
-    )
-
-
 def manual_cluster_step() -> rx.Component:
-    """Click-to-select books and compare against a reference group."""
+    """Pick books into a named group for later use in The numbers."""
     return rx.vstack(
         rx.hstack(
             _tip_button(
@@ -100,14 +81,14 @@ def manual_cluster_step() -> rx.Component:
             ),
             _tip_button(
                 "Done",
-                "Compare the picked books to the reference group",
+                "Finish picking — then name and save the group",
                 on_click=ManualClusterState.done_picking,
                 size="2",
                 disabled=ManualClusterState.n_picked <= 0,
             ),
             _tip_button(
                 "Clear",
-                "Clear the current pick without comparing",
+                "Clear the current pick",
                 on_click=ManualClusterState.clear_picked,
                 size="2",
                 variant="ghost",
@@ -119,36 +100,6 @@ def manual_cluster_step() -> rx.Component:
             spacing="3",
             flex_wrap="wrap",
             align="center",
-        ),
-        rx.hstack(
-            rx.segmented_control.root(
-                rx.segmented_control.item("Corpus", value=COMPARE_CORPUS),
-                rx.segmented_control.item("All other", value=COMPARE_ALL_OTHER),
-                rx.segmented_control.item(
-                    "Cluster", value=COMPARE_EXISTING_CLUSTER
-                ),
-                value=ManualClusterState.comparison_scope_type,
-                on_change=ManualClusterState.set_comparison_scope_type,
-            ),
-            rx.cond(
-                ManualClusterState.comparison_scope_type != COMPARE_ALL_OTHER,
-                rx.select.root(
-                    rx.select.trigger(placeholder="Choose group…"),
-                    rx.select.content(
-                        rx.foreach(
-                            ManualClusterState.comparison_options_rows,
-                            _comparison_option,
-                        )
-                    ),
-                    value=ManualClusterState.comparison_scope_value,
-                    on_change=ManualClusterState.set_comparison_scope_value,
-                    size="2",
-                ),
-            ),
-            spacing="3",
-            flex_wrap="wrap",
-            align="center",
-            width="100%",
         ),
         rx.cond(
             ManualClusterState.picking,
@@ -245,7 +196,7 @@ def manual_cluster_step() -> rx.Component:
                     ),
                     rx.text(
                         "No groups yet. Saved groups can be picked as either "
-                        "side in the comparison tables below.",
+                        "side in The numbers below.",
                         size="1",
                         color="gray",
                     ),
@@ -259,66 +210,6 @@ def manual_cluster_step() -> rx.Component:
             align="start",
         ),
         rx.text(ManualClusterState.status_message, size="2", color="gray"),
-        rx.cond(
-            ManualClusterState.has_results,
-            rx.vstack(
-                rx.badge(
-                    "Consistency: " + ManualClusterState.consistency,
-                    variant="soft",
-                    color_scheme="blue",
-                ),
-                rx.vstack(
-                    rx.text(
-                        "Books in comparison group ("
-                        + ManualClusterState.comparison_member_rows.length().to(str)
-                        + ")",
-                        size="2",
-                        weight="bold",
-                    ),
-                    rx.hstack(
-                        rx.foreach(
-                            ManualClusterState.comparison_member_rows,
-                            _comparison_member,
-                        ),
-                        spacing="2",
-                        flex_wrap="wrap",
-                    ),
-                    width="100%",
-                    spacing="2",
-                ),
-                rx.grid(
-                    feature_grid(
-                        grid_id="manual-top",
-                        title="Top features",
-                        rows=ManualClusterState.top_rows,
-                        help_key="top_features",
-                        export_source="manual",
-                        export_kind="top",
-                    ),
-                    feature_grid(
-                        grid_id="manual-distinctive",
-                        title="Distinctive features",
-                        rows=ManualClusterState.distinctive_rows,
-                        help_key="distinctive_features",
-                        export_source="manual",
-                        export_kind="distinctive",
-                    ),
-                    feature_grid(
-                        grid_id="manual-gap",
-                        title="Gap features",
-                        rows=ManualClusterState.gap_rows,
-                        help_key="gap_features",
-                        export_source="manual",
-                        export_kind="gap",
-                    ),
-                    columns=rx.breakpoints(initial="1", md="3"),
-                    spacing="4",
-                    width="100%",
-                ),
-                width="100%",
-                spacing="3",
-            ),
-        ),
         spacing="4",
         width="100%",
         align="start",

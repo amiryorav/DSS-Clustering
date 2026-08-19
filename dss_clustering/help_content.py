@@ -122,14 +122,13 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
     },
     "manual_cluster": {
         "title": "Manual group tool",
-        "summary": "Pick books by hand, compare them, and save the group to your account.",
+        "summary": "Pick books by hand and save them as a named group.",
         "body": (
             "Start selecting, then click books on the 3D plot or dendrogram. "
-            "Done compares the picked set against a reference group "
-            "(corpus, all other selected books, or an existing auto "
-            "cluster) using the same top / distinctive / gap definitions "
-            "as the tables step. Named groups are stored in the database "
-            "under your Google user id and can be chosen again in Data tables."
+            "Done finishes the pick — name the group and save it. Guests keep "
+            "groups for this visit; signed-in users store them under their "
+            "account. Use a saved group as either side when comparing in "
+            "The numbers."
         ),
         "group": "Pipeline",
     },

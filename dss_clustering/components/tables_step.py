@@ -5,6 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.feature_grid import feature_grid
+from dss_clustering.components.help import tip_button
+from dss_clustering.components.manual_cluster_step import manual_cluster_step
 from dss_clustering.pipeline.metrics import (
     SCOPE_BOOK,
     SCOPE_CLUSTER,
@@ -12,7 +14,9 @@ from dss_clustering.pipeline.metrics import (
     SCOPE_MANUAL,
 )
 from dss_clustering.states.export_state import ExportState
+from dss_clustering.states.manual_cluster_state import ManualClusterState
 from dss_clustering.states.table_state import TableState
+from dss_clustering.styles import ACCENT
 
 
 def _scope_option(opt: dict) -> rx.Component:
@@ -92,6 +96,39 @@ def _member_panel(title, rows, color: str) -> rx.Component:
 def tables_step() -> rx.Component:
     """Top / distinctive / gap tables for a subject-reference comparison."""
     return rx.vstack(
+        rx.cond(
+            ManualClusterState.show_builder,
+            rx.vstack(
+                rx.hstack(
+                    rx.heading("Create our own groups", size="4", weight="bold"),
+                    tip_button(
+                        "Hide",
+                        "Hide the group creator",
+                        on_click=ManualClusterState.close_builder,
+                        size="2",
+                        variant="ghost",
+                    ),
+                    width="100%",
+                    align="center",
+                    justify="between",
+                ),
+                manual_cluster_step(),
+                width="100%",
+                spacing="3",
+                align="start",
+                border="1px solid var(--gray-a6)",
+                border_radius="md",
+                padding="0.75rem",
+            ),
+            tip_button(
+                "Create our own groups",
+                "Pick books into a named group to use as either side below",
+                on_click=ManualClusterState.open_builder,
+                size="2",
+                variant="soft",
+                color_scheme=ACCENT,
+            ),
+        ),
         rx.vstack(
             _side_picker(
                 caption=TableState.x_display_label,

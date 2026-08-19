@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -29,6 +29,8 @@ class AnalysisConfig:
     linkage_method: str  # "ward" | "average"
     distance_metric: str  # "euclidean" | "cosine"
     cut_height: float
+    # document_id str → excluded DSS fragment keys (e.g. ["f13"])
+    excluded_fragments: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -37,11 +39,20 @@ class AnalysisConfig:
         d["morph_columns"] = list(self.morph_columns)
         if self.svd_sweep_range is not None:
             d["svd_sweep_range"] = list(self.svd_sweep_range)
+        d["excluded_fragments"] = {
+            str(k): list(v) for k, v in (self.excluded_fragments or {}).items()
+        }
         return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AnalysisConfig:
         sweep = data.get("svd_sweep_range")
+        raw_excl = data.get("excluded_fragments") or {}
+        excluded = {
+            str(k): [str(f) for f in (v or [])]
+            for k, v in raw_excl.items()
+            if v
+        }
         return cls(
             selected_document_ids=tuple(int(x) for x in data["selected_document_ids"]),
             feature_mode=str(data["feature_mode"]),
@@ -62,4 +73,5 @@ class AnalysisConfig:
             linkage_method=str(data["linkage_method"]),
             distance_metric=str(data["distance_metric"]),
             cut_height=float(data["cut_height"]),
+            excluded_fragments=excluded,
         )

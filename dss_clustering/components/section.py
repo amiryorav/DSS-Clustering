@@ -20,10 +20,15 @@ from dss_clustering.styles import (
 
 
 def under_hood(*content: rx.Component) -> rx.Component:
-    """A closed-by-default accordion holding the technical controls."""
+    """A closed-by-default accordion; gear icon opens the technical controls."""
     return rx.accordion.root(
         rx.accordion.item(
-            header="Under the hood",
+            header=rx.tooltip(
+                rx.icon("settings", size=20, aria_label="Configuration"),
+                content="Configuration",
+                side="top",
+                side_offset=4,
+            ),
             content=rx.vstack(
                 *content,
                 spacing="4",

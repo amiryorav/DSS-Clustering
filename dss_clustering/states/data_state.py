@@ -9,6 +9,10 @@ import reflex as rx
 from sqlmodel import func, select
 
 from dss_clustering.models import Document, LemmaRow
+from dss_clustering.pipeline.fragments import (
+    document_ids_with_fragments,
+    list_fragments_for_document,
+)
 
 # Default identity colors used by the plot step (not edited in Data).
 DEFAULT_CORPUS_COLORS = {
@@ -29,7 +33,7 @@ class DataState(rx.State):
     """Book selection (spec 8.1). Plot-area colors live here for redraw only."""
 
     corpora: list[str] = []
-    # corpus -> [{id, book, label, n_entries}, ...] straight from the DB
+    # corpus -> [{id, book, label, n_entries, has_fragments}, ...]
     documents_by_corpus: dict[str, list[dict]] = {}
     # document_id (as str) -> display label
     document_labels: dict[str, str] = {}
@@ -42,6 +46,12 @@ class DataState(rx.State):
     corpus_default_color: dict[str, str] = dict(DEFAULT_CORPUS_COLORS)
     # keyed by str(document_id); set from the plot step only
     document_color_override: dict[str, str] = {}
+
+    # DSS fragment deselection: document_id str → excluded fragment keys (f13, …)
+    excluded_fragments: dict[str, list[str]] = {}
+    expanded_document_ids: list[int] = []
+    # document_id str → [{key, label, n_entries}, ...] loaded on expand
+    fragment_cache: dict[str, list[dict]] = {}
 
     min_entries_per_book: int = 100
     search_text: str = ""
@@ -74,8 +84,20 @@ class DataState(rx.State):
             self.selected_document_ids = [
                 i for i in self.selected_document_ids if i != document_id
             ]
+            # Deselecting the scroll clears its fragment exclusions.
+            key = str(document_id)
+            if key in self.excluded_fragments:
+                self.excluded_fragments = {
+                    k: v for k, v in self.excluded_fragments.items() if k != key
+                }
         else:
             self.selected_document_ids = [*self.selected_document_ids, document_id]
+            # Re-selecting a scroll includes all fragments again.
+            key = str(document_id)
+            if key in self.excluded_fragments:
+                self.excluded_fragments = {
+                    k: v for k, v in self.excluded_fragments.items() if k != key
+                }
         return self._invalidate_matrix()
 
     @rx.event
@@ -91,8 +113,18 @@ class DataState(rx.State):
             self.selected_document_ids = [
                 i for i in self.selected_document_ids if i not in remove
             ]
+            remove_keys = {str(i) for i in remove}
+            self.excluded_fragments = {
+                k: v
+                for k, v in self.excluded_fragments.items()
+                if k not in remove_keys
+            }
         else:
             self.selected_document_ids = sorted(selected | set(ids))
+            keep = dict(self.excluded_fragments)
+            for i in ids:
+                keep.pop(str(i), None)
+            self.excluded_fragments = keep
         return self._invalidate_matrix()
 
     @rx.event
@@ -103,11 +135,97 @@ class DataState(rx.State):
             for doc in docs
         ]
         self.selected_document_ids = sorted(set(self.selected_document_ids) | set(ids))
+        keep = dict(self.excluded_fragments)
+        for i in ids:
+            keep.pop(str(i), None)
+        self.excluded_fragments = keep
         return self._invalidate_matrix()
 
     @rx.event
     def clear_selection(self):
         self.selected_document_ids = []
+        self.excluded_fragments = {}
+        return self._invalidate_matrix()
+
+    @rx.event(background=True)
+    async def expand_document(self, document_id: int):
+        """Open the fragment tree; load children from the DB on first expand."""
+        doc_id = int(document_id)
+        key = str(doc_id)
+        async with self:
+            if doc_id not in self.expanded_document_ids:
+                self.expanded_document_ids = [*self.expanded_document_ids, doc_id]
+            if key in self.fragment_cache:
+                return
+            book = self.document_books.get(key, "")
+
+        try:
+            rows = await asyncio.to_thread(
+                list_fragments_for_document,
+                doc_id,
+                row_type=VALID_ROW_TYPE,
+                book=book,
+            )
+        except Exception as exc:  # noqa: BLE001
+            async with self:
+                self.status_message = f"Could not load fragments: {exc}"
+            return
+
+        async with self:
+            self.fragment_cache = {**self.fragment_cache, key: rows}
+
+    @rx.event
+    def collapse_document(self, document_id: int):
+        doc_id = int(document_id)
+        self.expanded_document_ids = [
+            i for i in self.expanded_document_ids if i != doc_id
+        ]
+
+    @rx.event
+    def toggle_expand(self, document_id: int):
+        doc_id = int(document_id)
+        if doc_id in self.expanded_document_ids:
+            return DataState.collapse_document(doc_id)
+        return DataState.expand_document(doc_id)
+
+    @rx.event
+    def toggle_fragment(self, document_id: int, fragment_key: str):
+        """Include/exclude one DSS fragment within a selected scroll."""
+        doc_id = int(document_id)
+        key = str(doc_id)
+        frag = str(fragment_key).strip()
+        if not frag:
+            return
+
+        excluded = list(self.excluded_fragments.get(key, []))
+        cache = self.fragment_cache.get(key, [])
+        all_keys = [row["key"] for row in cache]
+
+        if frag in excluded:
+            excluded = [f for f in excluded if f != frag]
+        else:
+            excluded = [*excluded, frag]
+
+        # If every known fragment is excluded, deselect the parent scroll.
+        if all_keys and set(all_keys).issubset(set(excluded)):
+            self.selected_document_ids = [
+                i for i in self.selected_document_ids if i != doc_id
+            ]
+            self.excluded_fragments = {
+                k: v for k, v in self.excluded_fragments.items() if k != key
+            }
+            return self._invalidate_matrix()
+
+        # Re-including any fragment while the scroll was off selects it again.
+        if doc_id not in self.selected_document_ids:
+            self.selected_document_ids = [*self.selected_document_ids, doc_id]
+
+        if excluded:
+            self.excluded_fragments = {**self.excluded_fragments, key: excluded}
+        else:
+            self.excluded_fragments = {
+                k: v for k, v in self.excluded_fragments.items() if k != key
+            }
         return self._invalidate_matrix()
 
     @staticmethod
@@ -180,11 +298,24 @@ class DataState(rx.State):
                         "book": book,
                         "label": label,
                         "n_entries": int(n),
+                        "has_fragments": False,
                     }
                 )
                 labels[str(doc_id)] = label
                 books[str(doc_id)] = book
                 corpus_of[str(doc_id)] = corpus
+
+            # One cheap probe for DSS scrolls that have fragment locators —
+            # still no per-fragment lists until the user expands a row.
+            dss_ids = [doc["id"] for doc in by_corpus.get("dss", [])]
+            if dss_ids:
+                frag_ids = await asyncio.to_thread(
+                    document_ids_with_fragments,
+                    dss_ids,
+                    row_type=VALID_ROW_TYPE,
+                )
+                for doc in by_corpus.get("dss", []):
+                    doc["has_fragments"] = doc["id"] in frag_ids
 
             for docs in by_corpus.values():
                 docs.sort(key=lambda d: d["label"].lower())
@@ -199,14 +330,26 @@ class DataState(rx.State):
                 self.document_labels = labels
                 self.document_books = books
                 self.document_corpus = corpus_of
-                # First load: select every eligible book. Later reloads keep the
-                # user's picks, dropping only ids that disappeared from the catalog.
                 eligible_ids = [
                     doc["id"]
                     for docs in by_corpus.values()
                     for doc in docs
                 ]
                 eligible = set(eligible_ids)
+                eligible_keys = {str(i) for i in eligible}
+                self.fragment_cache = {
+                    k: v
+                    for k, v in self.fragment_cache.items()
+                    if k in eligible_keys
+                }
+                self.expanded_document_ids = [
+                    i for i in self.expanded_document_ids if i in eligible
+                ]
+                self.excluded_fragments = {
+                    k: v
+                    for k, v in self.excluded_fragments.items()
+                    if k in eligible_keys
+                }
                 if not self.selected_document_ids:
                     self.selected_document_ids = sorted(eligible_ids)
                 else:
@@ -241,15 +384,39 @@ class DataState(rx.State):
                 out[corpus] = matched
         return out
 
+    def _fragment_rows_for(self, document_id: int) -> list[dict]:
+        key = str(document_id)
+        excluded = set(self.excluded_fragments.get(key, []))
+        return [
+            {**row, "selected": row["key"] not in excluded}
+            for row in self.fragment_cache.get(key, [])
+        ]
+
     # ---------- computed vars ----------
 
     @rx.var(cache=True)
     def filtered_documents(self) -> dict[str, list[dict]]:
-        """Search-filtered documents enriched with selection state."""
+        """Search-filtered documents enriched with selection / expand state."""
         selected = set(self.selected_document_ids)
+        expanded = set(self.expanded_document_ids)
         out: dict[str, list[dict]] = {}
         for corpus, docs in self._filtered_raw().items():
-            out[corpus] = [{**doc, "selected": doc["id"] in selected} for doc in docs]
+            enriched = []
+            for doc in docs:
+                doc_id = doc["id"]
+                enriched.append(
+                    {
+                        **doc,
+                        "selected": doc_id in selected,
+                        "expanded": doc_id in expanded,
+                        "fragments": self._fragment_rows_for(doc_id),
+                        "fragments_loading": (
+                            doc_id in expanded
+                            and str(doc_id) not in self.fragment_cache
+                        ),
+                    }
+                )
+            out[corpus] = enriched
         return out
 
     @rx.var(cache=True)

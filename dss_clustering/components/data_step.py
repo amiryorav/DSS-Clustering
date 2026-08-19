@@ -8,20 +8,82 @@ from dss_clustering.components.help import tip_button
 from dss_clustering.states.data_state import DataState
 
 
-def _document_row(doc: dict) -> rx.Component:
+def _fragment_row(doc_id, frag: dict) -> rx.Component:
     return rx.hstack(
+        rx.box(width="1.5rem"),
         rx.checkbox(
-            checked=doc["selected"],
-            on_change=lambda _: DataState.toggle_document(doc["id"]),
+            checked=frag["selected"],
+            on_change=lambda _: DataState.toggle_fragment(doc_id, frag["key"]),
         ),
-        rx.text(doc["label"], weight="medium"),
+        rx.text(frag["label"], size="2"),
         rx.spacer(),
-        rx.text(doc["n_entries"], size="2", color="gray"),
-        rx.text("valid rows", size="2", color="gray"),
+        rx.text(frag["n_entries"], size="1", color="gray"),
+        rx.text("rows", size="1", color="gray"),
         width="100%",
-        padding_y="0.2rem",
+        padding_y="0.15rem",
+        padding_left="0.5rem",
         align="center",
         spacing="2",
+    )
+
+
+def _document_row(doc: dict) -> rx.Component:
+    expand_control = rx.cond(
+        doc["has_fragments"],
+        rx.icon_button(
+            rx.cond(
+                doc["expanded"],
+                rx.icon("chevron-down", size=14),
+                rx.icon("chevron-right", size=14),
+            ),
+            size="1",
+            variant="ghost",
+            on_click=DataState.toggle_expand(doc["id"]),
+            aria_label="Expand or collapse fragments",
+        ),
+        rx.box(width="1.75rem"),
+    )
+    return rx.vstack(
+        rx.hstack(
+            expand_control,
+            rx.checkbox(
+                checked=doc["selected"],
+                on_change=lambda _: DataState.toggle_document(doc["id"]),
+            ),
+            rx.text(doc["label"], weight="medium"),
+            rx.spacer(),
+            rx.text(doc["n_entries"], size="2", color="gray"),
+            rx.text("valid rows", size="2", color="gray"),
+            width="100%",
+            padding_y="0.2rem",
+            align="center",
+            spacing="2",
+        ),
+        rx.cond(
+            doc["expanded"],
+            rx.vstack(
+                rx.cond(
+                    doc["fragments_loading"],
+                    rx.text(
+                        "Loading fragments…",
+                        size="1",
+                        color="gray",
+                        padding_left="2.5rem",
+                        padding_y="0.25rem",
+                    ),
+                ),
+                rx.foreach(
+                    doc["fragments"].to(list[dict]),
+                    lambda frag: _fragment_row(doc["id"], frag),
+                ),
+                width="100%",
+                spacing="0",
+                padding_bottom="0.35rem",
+            ),
+        ),
+        width="100%",
+        spacing="0",
+        align="start",
     )
 
 

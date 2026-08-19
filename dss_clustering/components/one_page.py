@@ -14,7 +14,6 @@ from dss_clustering.components.dendrogram_step import (
     dendrogram_step,
 )
 from dss_clustering.components.features_step import features_advanced, features_step
-from dss_clustering.components.manual_cluster_step import manual_cluster_step
 from dss_clustering.components.plot_step import plot_advanced, plot_step
 from dss_clustering.components.run_section import run_advanced, run_controls
 from dss_clustering.components.saved_config_step import saved_config_step
@@ -59,7 +58,7 @@ def _hero() -> rx.Component:
 
 
 def one_page() -> rx.Component:
-    """Hero followed by the eight analysis sections."""
+    """Hero followed by the seven analysis sections."""
     return rx.vstack(
         _hero(),
         page_section(
@@ -104,43 +103,34 @@ def one_page() -> rx.Component:
         page_section(
             "tree",
             "5",
-            "The dendrogram",
+            "The Tree",
             "The same closeness, drawn as a tree. Slide the cut line to split "
             "the books into more or fewer clusters.",
             dendrogram_step(),
             advanced=dendrogram_advanced(),
             ready=DendrogramState.has_tree,
-            placeholder="Run the analysis above to build the dendrogram.",
+            placeholder="Run the analysis above to build the tree.",
             alt=True,
-        ),
-        page_section(
-            "groups",
-            "6",
-            "Your own groups",
-            "Click books on the map to gather them into a group, then see what "
-            "makes that group stand out.",
-            manual_cluster_step(),
-            ready=PlotState.has_figure,
-            placeholder="Run the analysis above, then pick books on the map.",
         ),
         page_section(
             "numbers",
-            "7",
+            "6",
             "The numbers",
             "Compare any two groups side by side and read which words or "
-            "grammar features set them apart.",
+            "grammar features set them apart. You can also create your own "
+            "groups to use as either side.",
             tables_step(),
             ready=DendrogramState.has_tree,
             placeholder="Run the analysis above to compare groups.",
-            alt=True,
         ),
         page_section(
             "save",
-            "8",
+            "7",
             "Save & export",
             "Sign in to keep your settings and hand-picked groups for next "
             "time. You can export any plot or table as you go.",
             saved_config_step(),
+            alt=True,
         ),
         spacing="0",
         width="100%",

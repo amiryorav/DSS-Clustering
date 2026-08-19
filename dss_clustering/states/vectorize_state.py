@@ -22,12 +22,21 @@ def _fingerprint(
     feature_mode: str,
     active_columns: list[str],
     ignore_proper_names: bool,
+    excluded_fragments: dict | None = None,
 ) -> str:
+    excl = excluded_fragments or {}
+    # Stable order so identical exclusions hash the same.
+    excl_norm = {
+        str(k): sorted(str(f) for f in v)
+        for k, v in sorted(excl.items(), key=lambda kv: str(kv[0]))
+        if v
+    }
     payload = {
         "docs": sorted(document_ids),
         "mode": feature_mode,
         "cols": list(active_columns),
         "ignore": bool(ignore_proper_names),
+        "excl": excl_norm,
     }
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
@@ -73,6 +82,7 @@ class VectorizeState(rx.State):
             features.mode,
             list(features.active_columns),
             bool(features.should_ignore_proper_names),
+            dict(data.excluded_fragments),
         )
         self.is_stale = (not self.has_matrix) or (fp != self.built_fingerprint)
 
@@ -85,6 +95,8 @@ class VectorizeState(rx.State):
             active_columns = list(features.active_columns)
             feature_mode = features.mode
             ignore = bool(features.should_ignore_proper_names)
+            excluded = dict(data.excluded_fragments)
+            document_books = dict(data.document_books)
             token = self._client_token()
 
             if not doc_ids:
@@ -120,6 +132,8 @@ class VectorizeState(rx.State):
                         active_columns,
                         row_type=VALID_ROW_TYPE,
                         ignore_proper_names=ignore,
+                        excluded_fragments=excluded,
+                        document_books=document_books,
                     )
                 ).all()
 
@@ -154,7 +168,9 @@ class VectorizeState(rx.State):
                 groups, doc_ids
             )
             del groups
-            fp = _fingerprint(doc_ids, feature_mode, active_columns, ignore)
+            fp = _fingerprint(
+                doc_ids, feature_mode, active_columns, ignore, excluded
+            )
             put_bundle(
                 token,
                 MatrixBundle(
