@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Open, comment, or close the single keepalive issue.
 # Usage: keepalive_issue.sh open|comment|close [markdown body]
+# Body may also come from ISSUE_BODY (avoids flush-left YAML in workflows).
 set -euo pipefail
 
 TITLE="Keepalive: dss-clustering is down"
 LABEL="keepalive"
-BODY="${2:-}"
+BODY="${2:-${ISSUE_BODY:-}}"
 
 find_open() {
   gh issue list --label "$LABEL" --state open --limit 20 \

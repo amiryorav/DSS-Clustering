@@ -113,13 +113,14 @@ jobs:
         if: steps.probe.outputs.needs_deploy != 'true' && steps.probe.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_BODY: |
+            Recovered: probes are healthy again (${{ steps.probe.outputs.reason }}).
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           chmod +x .github/scripts/keepalive_issue.sh
           num="$(.github/scripts/keepalive_issue.sh find || true)"
           if [ -n "${num:-}" ]; then
-            .github/scripts/keepalive_issue.sh close "Recovered: probes are healthy again (${{ steps.probe.outputs.reason }}).
-
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            .github/scripts/keepalive_issue.sh close
           fi
 
       - name: Open or update down issue
@@ -127,15 +128,15 @@ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.r
         if: steps.probe.outputs.needs_deploy == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_BODY: |
+            The live app looks down.
+            - reason: `${{ steps.probe.outputs.reason }}`
+            - frontend: ${{ env.FRONTEND_URL }}
+            - run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            A Reflex Cloud deploy will be attempted next (unless cooldown blocks it).
         run: |
           chmod +x .github/scripts/keepalive_issue.sh
-          num="$(.github/scripts/keepalive_issue.sh open "The live app looks down.
-
-- reason: \`${{ steps.probe.outputs.reason }}\`
-- frontend: $FRONTEND_URL
-- run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-A Reflex Cloud deploy will be attempted next (unless cooldown blocks it).")"
+          num="$(.github/scripts/keepalive_issue.sh open)"
           echo "number=$num" >> "$GITHUB_OUTPUT"
 
       - name: Restore deploy cooldown stamp
@@ -156,6 +157,7 @@ A Reflex Cloud deploy will be attempted next (unless cooldown blocks it).")"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
           COOLDOWN_SEC: "3600"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -e
           now=$(date +%s)
@@ -164,9 +166,8 @@ A Reflex Cloud deploy will be attempted next (unless cooldown blocks it).")"
             age=$((now - then))
             if [ "$age" -lt "$COOLDOWN_SEC" ]; then
               echo "Last deploy was ${age}s ago (cooldown ${COOLDOWN_SEC}s)."
-              .github/scripts/keepalive_issue.sh comment "Still down. Skipping deploy (cooldown ${COOLDOWN_SEC}s, last deploy ${age}s ago).
-
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
+              ISSUE_BODY="Still down. Skipping deploy (cooldown ${COOLDOWN_SEC}s, last deploy ${age}s ago). Run: $RUN_URL" \
+                .github/scripts/keepalive_issue.sh comment || true
               echo "skipped=true" >> "$GITHUB_OUTPUT"
               exit 1
             fi
@@ -177,7 +178,7 @@ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.r
             exit 1
           fi
           printf '%s\n' "$REFLEX_ENVFILE" > .env
-          .github/scripts/keepalive_issue.sh comment "Deploying from run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
+          ISSUE_BODY="Deploying from run $RUN_URL" .github/scripts/keepalive_issue.sh comment || true
           reflex deploy --config cloud.yml --no-interactive --project-name "Default Project" --token "$REFLEX_TOKEN" --envfile .env --description "Keepalive auto-deploy" \
             --exclude-from-backend master_dataset.pkl \
             --exclude-from-backend lemma.py \
@@ -213,22 +214,24 @@ Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.r
         if: steps.deploy.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_BODY: |
+            Recovered: Cloud status is Running after deploy.
+            Frontend: ${{ env.FRONTEND_URL }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           chmod +x .github/scripts/keepalive_issue.sh
-          .github/scripts/keepalive_issue.sh close "Recovered: Cloud status is Running after deploy.
-
-Frontend: $FRONTEND_URL
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          .github/scripts/keepalive_issue.sh close
 
       - name: Comment deploy failed
         if: steps.probe.outputs.needs_deploy == 'true' && steps.deploy.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_BODY: |
+            Deploy did not leave the app healthy. The issue stays open.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           chmod +x .github/scripts/keepalive_issue.sh
-          .github/scripts/keepalive_issue.sh comment "Deploy did not leave the app healthy. The issue stays open.
-
-Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
+          .github/scripts/keepalive_issue.sh comment || true
 
       - name: Job summary
         if: always()
