@@ -1,0 +1,149 @@
+# Ping the Reflex Cloud *worker* (not the static frontend) every 15 minutes.
+# If /ping/ or Cloud status says the VM is dead, stop+start the app.
+#
+# One-time setup (GitHub → Settings → Secrets and variables → Actions):
+#   Secret REFLEX_TOKEN
+#     Locally, while logged in to Reflex Cloud:
+#       .venv\Scripts\reflex.exe cloud create-token github-actions --duration 90
+#     Paste the printed token. Tokens last at most 90 days; rotate before expiry.
+#
+# Failed runs email whoever has Actions notifications on for this repo.
+# A full `reflex deploy` is not automatic — restart is enough when the last
+# image is fine and the 1 GB VM simply died.
+
+name: Keepalive worker
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_restart:
+        description: Stop and start the Cloud worker even if probes succeed
+        type: boolean
+        default: false
+
+concurrency:
+  group: keepalive-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_ID: 58d9680e-4c9d-4d5c-8e00-bebaefdb177d
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout probe script
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Reflex CLI
+        run: pip install "reflex==0.9.8"
+
+      - name: Require REFLEX_TOKEN
+        env:
+          REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
+        run: |
+          if [ -z "$REFLEX_TOKEN" ]; then
+            echo "Add repository secret REFLEX_TOKEN (reflex cloud create-token ...)."
+            exit 1
+          fi
+
+      - name: Inspect Cloud app
+        env:
+          REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
+        run: |
+          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.json
+          python -c "import json; d=json.load(open('inspect.json')); print('status', (d.get('latest_deployment') or {}).get('status')); print('backend', d.get('backend_url'))"
+
+      - name: Probe worker
+        id: probe
+        env:
+          FORCE_RESTART: ${{ github.event.inputs.force_restart }}
+        run: |
+          extra=""
+          if [ "$FORCE_RESTART" = "true" ]; then
+            extra="--force-restart"
+          fi
+          set +e
+          python .github/scripts/check_worker.py inspect.json $extra
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 0 ]; then
+            echo "Worker is healthy."
+            exit 0
+          fi
+          if [ "$code" -eq 11 ]; then
+            echo "Worker process is up but DB/Redis is not. Not restarting."
+            exit 1
+          fi
+          if [ "$code" -eq 10 ]; then
+            echo "Worker looks down."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Restore restart cooldown stamp
+        if: steps.probe.outputs.restart == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: .keepalive-restart
+          key: keepalive-restart-${{ github.run_id }}
+          restore-keys: |
+            keepalive-restart-
+
+      - name: Restart Cloud worker
+        id: restart
+        if: steps.probe.outputs.restart == 'true'
+        env:
+          REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
+          FORCE_RESTART: ${{ github.event.inputs.force_restart }}
+          COOLDOWN_SEC: "2700"
+        run: |
+          now=$(date +%s)
+          if [ "$FORCE_RESTART" != "true" ] && [ -f .keepalive-restart ]; then
+            then=$(cat .keepalive-restart)
+            age=$((now - then))
+            if [ "$age" -lt "$COOLDOWN_SEC" ]; then
+              echo "Last restart was ${age}s ago (cooldown ${COOLDOWN_SEC}s). Not restarting again."
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          fi
+          echo "Stopping then starting $APP_ID ..."
+          reflex cloud apps stop "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive || true
+          sleep 8
+          reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
+          echo "$now" > .keepalive-restart
+          echo "Waiting for the worker to come up..."
+          sleep 90
+          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.json
+          python .github/scripts/check_worker.py inspect.json --require-healthy
+
+      - name: Save restart cooldown stamp
+        if: steps.restart.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .keepalive-restart
+          key: keepalive-restart-${{ github.run_id }}
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Keepalive"
+            echo "- reason: \`${{ steps.probe.outputs.reason }}\`"
+            echo "- restart requested: \`${{ steps.probe.outputs.restart }}\`"
+            echo "- frontend: https://dss-clustering.reflex.run"
+          } >> "$GITHUB_STEP_SUMMARY"
