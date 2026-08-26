@@ -37,10 +37,15 @@ def _github_output(key: str, value: str) -> None:
 def load_inspect(path: str) -> dict:
     with open(path, encoding="utf-8") as fh:
         raw = fh.read()
+    return parse_inspect_text(raw)
+
+
+def parse_inspect_text(raw: str) -> dict:
     start = raw.find("{")
-    if start < 0:
+    end = raw.rfind("}")
+    if start < 0 or end < start:
         raise ValueError("inspect output has no JSON object")
-    return json.loads(raw[start:])
+    return json.loads(raw[start : end + 1])
 
 
 def http_get(url: str, timeout: int = PING_TIMEOUT_SEC) -> tuple[int, str]:
@@ -120,7 +125,17 @@ def decide(inspect_data: dict, *, force_restart: bool = False) -> tuple[int, str
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("inspect_json")
+    parser.add_argument(
+        "inspect_json",
+        nargs="?",
+        help="Path to inspect JSON (or CLI stdout that contains JSON)",
+    )
+    parser.add_argument(
+        "--extract-inspect",
+        nargs=2,
+        metavar=("RAW", "OUT"),
+        help="Copy the JSON object from RAW CLI output into OUT.",
+    )
     parser.add_argument("--force-restart", action="store_true")
     parser.add_argument(
         "--require-healthy",
@@ -128,6 +143,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit 1 unless the worker is healthy (used after a restart).",
     )
     args = parser.parse_args(argv)
+
+    if args.extract_inspect:
+        src, dest = args.extract_inspect
+        try:
+            data = load_inspect(src)
+        except Exception as exc:  # noqa: BLE001
+            print(f"cannot parse inspect JSON: {exc}")
+            _github_output("restart", "false")
+            _github_output("reason", "inspect-parse-failed")
+            return 2
+        with open(dest, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        dep = data.get("latest_deployment") or {}
+        print("status", dep.get("status"))
+        print("backend", data.get("backend_url"))
+        return 0
+
+    if not args.inspect_json:
+        parser.error("inspect_json is required unless --extract-inspect is set")
 
     try:
         data = load_inspect(args.inspect_json)

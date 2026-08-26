@@ -11,6 +11,13 @@ sys.path.insert(0, str(SCRIPTS))
 import check_worker  # noqa: E402
 
 
+def test_parse_inspect_strips_cli_noise():
+    raw = 'Info: hello\n{"backend_url": "https://x", "latest_deployment": {"status": "Running"}}\n'
+    data = check_worker.parse_inspect_text(raw)
+    assert data["backend_url"] == "https://x"
+    assert data["latest_deployment"]["status"] == "Running"
+
+
 def test_stopped_status_requests_restart():
     code, _, restart = check_worker.decide(
         {

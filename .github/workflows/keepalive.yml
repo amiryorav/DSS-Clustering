@@ -40,10 +40,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout probe script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -51,20 +51,38 @@ jobs:
         run: pip install "reflex==0.9.8"
 
       - name: Require REFLEX_TOKEN
+        id: token
         env:
           REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
         run: |
           if [ -z "$REFLEX_TOKEN" ]; then
-            echo "Add repository secret REFLEX_TOKEN (reflex cloud create-token ...)."
+            echo "reason=Repository secret REFLEX_TOKEN is missing" >> "$GITHUB_OUTPUT"
+            echo "::error::Add repository secret REFLEX_TOKEN. On your PC run: reflex cloud create-token github-actions --duration 90"
             exit 1
           fi
+          echo "reason=" >> "$GITHUB_OUTPUT"
 
       - name: Inspect Cloud app
+        id: inspect_app
         env:
           REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
         run: |
-          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.json
-          python -c "import json; d=json.load(open('inspect.json')); print('status', (d.get('latest_deployment') or {}).get('status')); print('backend', d.get('backend_url'))"
+          set +e
+          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.raw 2> inspect.err
+          code=$?
+          set -e
+          if [ -s inspect.err ]; then
+            echo "CLI stderr:" >&2
+            cat inspect.err >&2
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "reason=reflex cloud apps inspect failed (exit $code); check token and app id" >> "$GITHUB_OUTPUT"
+            echo "::error::reflex cloud apps inspect failed with exit $code. If the token is wrong or expired, create a new REFLEX_TOKEN secret."
+            echo "----- inspect.raw -----" >&2
+            cat inspect.raw >&2
+            exit "$code"
+          fi
+          python .github/scripts/check_worker.py --extract-inspect inspect.raw inspect.json
 
       - name: Probe worker
         id: probe
@@ -96,7 +114,7 @@ jobs:
 
       - name: Restore restart cooldown stamp
         if: steps.probe.outputs.restart == 'true'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .keepalive-restart
           key: keepalive-restart-${{ github.run_id }}
@@ -128,12 +146,15 @@ jobs:
           echo "$now" > .keepalive-restart
           echo "Waiting for the worker to come up..."
           sleep 90
-          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.json
+          set +e
+          reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.raw 2> inspect.err
+          set -e
+          python .github/scripts/check_worker.py --extract-inspect inspect.raw inspect.json
           python .github/scripts/check_worker.py inspect.json --require-healthy
 
       - name: Save restart cooldown stamp
         if: steps.restart.outcome == 'success'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .keepalive-restart
           key: keepalive-restart-${{ github.run_id }}
@@ -141,9 +162,19 @@ jobs:
       - name: Job summary
         if: always()
         run: |
+          REASON='${{ steps.probe.outputs.reason }}'
+          RESTART='${{ steps.probe.outputs.restart }}'
+          TOKEN_REASON='${{ steps.token.outputs.reason }}'
+          INSPECT_REASON='${{ steps.inspect_app.outputs.reason }}'
+          if [ -z "$REASON" ]; then
+            REASON="${TOKEN_REASON:-${INSPECT_REASON:-Probe did not run. Open the failed step: usually a missing or invalid REFLEX_TOKEN secret.}}"
+          fi
+          if [ -z "$RESTART" ]; then
+            RESTART="false"
+          fi
           {
             echo "## Keepalive"
-            echo "- reason: \`${{ steps.probe.outputs.reason }}\`"
-            echo "- restart requested: \`${{ steps.probe.outputs.restart }}\`"
+            echo "- reason: \`${REASON}\`"
+            echo "- restart requested: \`${RESTART}\`"
             echo "- frontend: https://dss-clustering.reflex.run"
           } >> "$GITHUB_STEP_SUMMARY"
