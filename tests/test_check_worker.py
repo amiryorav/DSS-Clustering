@@ -65,7 +65,7 @@ def test_missing_backend_url():
 
 
 def test_running_unhealthy_deps_no_restart(monkeypatch):
-    monkeypatch.setattr(check_worker, "ping_ok", lambda url: True)
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (200, '"pong"'))
     monkeypatch.setattr(
         check_worker,
         "health_payload",
@@ -81,8 +81,21 @@ def test_running_unhealthy_deps_no_restart(monkeypatch):
     assert restart is False
 
 
-def test_running_ping_fail_restarts(monkeypatch):
-    monkeypatch.setattr(check_worker, "ping_ok", lambda url: False)
+def test_running_unreachable_ping_does_not_restart(monkeypatch):
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (0, "SSL EOF"))
+    code, reason, restart = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        }
+    )
+    assert code == 0
+    assert restart is False
+    assert "not restarting" in reason
+
+
+def test_running_http_502_restarts(monkeypatch):
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (502, "bad gateway"))
     code, _, restart = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",

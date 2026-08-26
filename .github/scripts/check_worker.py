@@ -3,8 +3,8 @@
 Reads ``reflex cloud apps inspect --json`` output, then hits the backend
 ``/ping/`` and ``/_health`` URLs. Exit codes:
 
-  0  worker healthy
-  10 worker down (restart)
+  0  worker healthy (or Cloud Running and public /ping/ unreachable)
+  10 worker down (restart or start)
   11 worker up but DB/Redis unhealthy (alert, do not restart)
   2  inspect payload unusable
 """
@@ -19,9 +19,9 @@ import time
 import urllib.error
 import urllib.request
 
-PING_TIMEOUT_SEC = 20
-PING_ATTEMPTS = 2
-PING_RETRY_SEC = 20
+PING_TIMEOUT_SEC = 12
+PING_ATTEMPTS = 1
+PING_RETRY_SEC = 8
 SKIP_RESTART_STATUSES = {"building", "deploying", "updating"}
 DOWN_STATUSES = {"stopped", "paused", "dead", "failed", "error"}
 
@@ -62,16 +62,26 @@ def http_get(url: str, timeout: int = PING_TIMEOUT_SEC) -> tuple[int, str]:
         return 0, str(exc)
 
 
-def ping_ok(backend_url: str) -> bool:
+def ping_result(backend_url: str) -> tuple[int, str]:
+    """Return the last (http_status, body). Status 0 means no HTTP response."""
     url = backend_url.rstrip("/") + "/ping/"
+    last_status, last_body = 0, ""
     for attempt in range(1, PING_ATTEMPTS + 1):
-        status, body = http_get(url)
-        if status == 200 and "pong" in body.lower():
-            return True
-        print(f"ping attempt {attempt}/{PING_ATTEMPTS}: HTTP {status} {body[:200]!r}")
+        last_status, last_body = http_get(url)
+        if last_status == 200 and "pong" in last_body.lower():
+            return last_status, last_body
+        print(
+            f"ping attempt {attempt}/{PING_ATTEMPTS}: "
+            f"HTTP {last_status} {last_body[:200]!r}"
+        )
         if attempt < PING_ATTEMPTS:
             time.sleep(PING_RETRY_SEC)
-    return False
+    return last_status, last_body
+
+
+def ping_ok(backend_url: str) -> bool:
+    status, body = ping_result(backend_url)
+    return status == 200 and "pong" in body.lower()
 
 
 def health_payload(backend_url: str) -> dict | None:
@@ -108,20 +118,31 @@ def decide(inspect_data: dict, *, force_restart: bool = False) -> tuple[int, str
     if status_l in DOWN_STATUSES:
         return 10, f"Cloud status is {status or 'unknown'}", True
 
-    if not ping_ok(backend_url):
-        return 10, f"backend ping failed ({backend_url}/ping/)", True
+    ping_status, ping_body = ping_result(backend_url)
+    if ping_status == 200 and "pong" in ping_body.lower():
+        health = health_payload(backend_url)
+        if health is None:
+            return 10, "backend /_health failed after a successful ping", True
+        if not health.get("status", True):
+            db_ok = health.get("db", True)
+            redis_ok = health.get("redis", True)
+            if db_ok and redis_ok:
+                return 10, f"_health status false: {health}", True
+            return 11, f"worker up but dependencies unhealthy: {health}", False
+        return 0, f"healthy (Cloud status={status or 'unknown'})", False
 
-    health = health_payload(backend_url)
-    if health is None:
-        return 10, "backend /_health failed after a successful ping", True
-    if not health.get("status", True):
-        db_ok = health.get("db", True)
-        redis_ok = health.get("redis", True)
-        if db_ok and redis_ok:
-            return 10, f"_health status false: {health}", True
-        return 11, f"worker up but dependencies unhealthy: {health}", False
+    # Fly's public backend URL often fails TLS from GitHub runners (and
+    # other networks) even while Cloud inspect says Running. Stopping the
+    # app on that signal takes the site down. Only bounce on HTTP 5xx.
+    if 500 <= ping_status < 600:
+        return 10, f"backend HTTP {ping_status} while Cloud status={status}", True
 
-    return 0, f"healthy (Cloud status={status or 'unknown'})", False
+    return (
+        0,
+        f"Cloud status={status or 'unknown'}; /ping/ unreachable from this "
+        f"runner (HTTP {ping_status}) — not restarting",
+        False,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -152,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"cannot parse inspect JSON: {exc}")
             _github_output("restart", "false")
+            _github_output("start_only", "false")
             _github_output("reason", "inspect-parse-failed")
             return 2
         with open(dest, "w", encoding="utf-8") as fh:
@@ -169,12 +191,18 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"cannot parse inspect JSON: {exc}")
         _github_output("restart", "false")
+        _github_output("start_only", "false")
         _github_output("reason", "inspect-parse-failed")
         return 2
 
     code, reason, restart = decide(data, force_restart=args.force_restart)
     print(reason)
+    status_l = str(
+        (data.get("latest_deployment") or {}).get("status") or ""
+    ).lower()
+    start_only = restart and status_l in DOWN_STATUSES and not args.force_restart
     _github_output("restart", "true" if restart else "false")
+    _github_output("start_only", "true" if start_only else "false")
     _github_output("reason", reason.replace("\n", " ")[:200])
 
     if args.require_healthy and code != 0:

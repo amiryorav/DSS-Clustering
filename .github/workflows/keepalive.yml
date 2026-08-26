@@ -127,6 +127,7 @@ jobs:
         env:
           REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
           FORCE_RESTART: ${{ github.event.inputs.force_restart }}
+          START_ONLY: ${{ steps.probe.outputs.start_only }}
           COOLDOWN_SEC: "2700"
         run: |
           now=$(date +%s)
@@ -139,10 +140,15 @@ jobs:
               exit 1
             fi
           fi
-          echo "Stopping then starting $APP_ID ..."
-          reflex cloud apps stop "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive || true
-          sleep 8
-          reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
+          if [ "$START_ONLY" = "true" ]; then
+            echo "Cloud reports the app stopped — starting it (no stop)."
+            reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
+          else
+            echo "Stopping then starting $APP_ID ..."
+            reflex cloud apps stop "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive || true
+            sleep 8
+            reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
+          fi
           echo "$now" > .keepalive-restart
           echo "Waiting for the worker to come up..."
           sleep 90
