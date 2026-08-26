@@ -24,30 +24,30 @@ def test_parse_inspect_allows_control_characters_in_strings():
     assert "line1" in data["description"]
 
 
-def test_stopped_status_requests_restart():
-    code, _, restart = check_worker.decide(
+def test_stopped_status_needs_deploy():
+    code, _, needs = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",
             "latest_deployment": {"status": "Stopped"},
         }
     )
     assert code == 10
-    assert restart is True
+    assert needs is True
 
 
-def test_building_skips_restart():
-    code, _, restart = check_worker.decide(
+def test_building_skips_deploy():
+    code, _, needs = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",
             "latest_deployment": {"status": "Building"},
         }
     )
     assert code == 0
-    assert restart is False
+    assert needs is False
 
 
-def test_credit_pause_does_not_restart():
-    code, _, restart = check_worker.decide(
+def test_credit_pause_does_not_deploy():
+    code, _, needs = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",
             "any_environment_credit_paused": True,
@@ -55,52 +55,114 @@ def test_credit_pause_does_not_restart():
         }
     )
     assert code == 11
-    assert restart is False
+    assert needs is False
 
 
 def test_missing_backend_url():
-    code, _, restart = check_worker.decide({"latest_deployment": {"status": "Running"}})
+    code, _, needs = check_worker.decide({"latest_deployment": {"status": "Running"}})
     assert code == 2
-    assert restart is False
+    assert needs is False
 
 
-def test_running_unhealthy_deps_no_restart(monkeypatch):
-    monkeypatch.setattr(check_worker, "ping_result", lambda url: (200, '"pong"'))
-    monkeypatch.setattr(
-        check_worker,
-        "health_payload",
-        lambda url: {"status": False, "db": False, "redis": True},
-    )
-    code, _, restart = check_worker.decide(
+def test_frontend_404_needs_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (404, "not found"))
+    code, reason, needs = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",
-            "latest_deployment": {"status": "Running"},
+            "latest_deployment": {
+                "status": "Running",
+                "url": "https://dss-clustering.reflex.run",
+            },
         }
     )
-    assert code == 11
-    assert restart is False
+    assert code == 10
+    assert needs is True
+    assert "frontend HTTP 404" in reason
 
 
-def test_running_unreachable_ping_does_not_restart(monkeypatch):
-    monkeypatch.setattr(check_worker, "ping_result", lambda url: (0, "SSL EOF"))
-    code, reason, restart = check_worker.decide(
-        {
-            "backend_url": "https://example.fly.dev",
-            "latest_deployment": {"status": "Running"},
-        }
-    )
-    assert code == 0
-    assert restart is False
-    assert "not restarting" in reason
-
-
-def test_running_http_502_restarts(monkeypatch):
-    monkeypatch.setattr(check_worker, "ping_result", lambda url: (502, "bad gateway"))
-    code, _, restart = check_worker.decide(
+def test_frontend_502_needs_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (502, "bad"))
+    code, _, needs = check_worker.decide(
         {
             "backend_url": "https://example.fly.dev",
             "latest_deployment": {"status": "Running"},
         }
     )
     assert code == 10
-    assert restart is True
+    assert needs is True
+
+
+def test_frontend_unreachable_does_not_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (0, "timeout"))
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (0, "SSL EOF"))
+    code, reason, needs = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        }
+    )
+    assert code == 0
+    assert needs is False
+    assert "not deploying" in reason
+
+
+def test_running_unhealthy_deps_no_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (200, "ok"))
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (200, '"pong"'))
+    monkeypatch.setattr(
+        check_worker,
+        "health_payload",
+        lambda url: {"status": False, "db": False, "redis": True},
+    )
+    code, _, needs = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        }
+    )
+    assert code == 11
+    assert needs is False
+
+
+def test_running_unreachable_ping_does_not_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (200, "ok"))
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (0, "SSL EOF"))
+    code, reason, needs = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        }
+    )
+    assert code == 0
+    assert needs is False
+    assert "not deploying" in reason
+
+
+def test_running_http_502_needs_deploy(monkeypatch):
+    monkeypatch.setattr(check_worker, "frontend_result", lambda url: (200, "ok"))
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (502, "bad gateway"))
+    code, _, needs = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        }
+    )
+    assert code == 10
+    assert needs is True
+
+
+def test_frontend_status_kwarg_skips_http(monkeypatch):
+    def boom(url):
+        raise AssertionError("should not fetch")
+
+    monkeypatch.setattr(check_worker, "frontend_result", boom)
+    monkeypatch.setattr(check_worker, "ping_result", lambda url: (0, "SSL EOF"))
+    code, _, needs = check_worker.decide(
+        {
+            "backend_url": "https://example.fly.dev",
+            "latest_deployment": {"status": "Running"},
+        },
+        frontend_status=200,
+    )
+    assert code == 0
+    assert needs is False

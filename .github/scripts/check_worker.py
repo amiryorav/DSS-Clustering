@@ -1,11 +1,10 @@
-"""Probe the Reflex Cloud worker (not the static frontend).
+"""Probe Reflex Cloud status, the public frontend, and optional Fly /ping/.
 
-Reads ``reflex cloud apps inspect --json`` output, then hits the backend
-``/ping/`` and ``/_health`` URLs. Exit codes:
+Exit codes:
 
-  0  worker healthy (or Cloud Running and public /ping/ unreachable)
-  10 worker down (restart or start)
-  11 worker up but DB/Redis unhealthy (alert, do not restart)
+  0  healthy (Cloud Running; Fly /ping/ may be unreachable)
+  10 dead — caller should notify and deploy
+  11 Cloud credits paused or DB/Redis unhealthy — notify, do not deploy
   2  inspect payload unusable
 """
 
@@ -22,7 +21,8 @@ import urllib.request
 PING_TIMEOUT_SEC = 12
 PING_ATTEMPTS = 1
 PING_RETRY_SEC = 8
-SKIP_RESTART_STATUSES = {"building", "deploying", "updating"}
+DEFAULT_FRONTEND = "https://dss-clustering.reflex.run"
+SKIP_DEPLOY_STATUSES = {"building", "deploying", "updating"}
 DOWN_STATUSES = {"stopped", "paused", "dead", "failed", "error"}
 
 
@@ -32,6 +32,11 @@ def _github_output(key: str, value: str) -> None:
         return
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(f"{key}={value}\n")
+
+
+def _emit(needs_deploy: bool, reason: str) -> None:
+    _github_output("needs_deploy", "true" if needs_deploy else "false")
+    _github_output("reason", reason.replace("\n", " ")[:240])
 
 
 def load_inspect(path: str) -> dict:
@@ -45,7 +50,6 @@ def parse_inspect_text(raw: str) -> dict:
     end = raw.rfind("}")
     if start < 0 or end < start:
         raise ValueError("inspect output has no JSON object")
-    # Reflex CLI --json can emit literal newlines inside string fields.
     return json.loads(raw[start : end + 1], strict=False)
 
 
@@ -60,6 +64,12 @@ def http_get(url: str, timeout: int = PING_TIMEOUT_SEC) -> tuple[int, str]:
         return int(exc.code), body
     except Exception as exc:  # noqa: BLE001
         return 0, str(exc)
+
+
+def frontend_result(url: str) -> tuple[int, str]:
+    status, body = http_get(url)
+    print(f"frontend {url}: HTTP {status} {body[:120]!r}")
+    return status, body
 
 
 def ping_result(backend_url: str) -> tuple[int, str]:
@@ -79,11 +89,6 @@ def ping_result(backend_url: str) -> tuple[int, str]:
     return last_status, last_body
 
 
-def ping_ok(backend_url: str) -> bool:
-    status, body = ping_result(backend_url)
-    return status == 200 and "pong" in body.lower()
-
-
 def health_payload(backend_url: str) -> dict | None:
     url = backend_url.rstrip("/") + "/_health"
     status, body = http_get(url)
@@ -97,10 +102,24 @@ def health_payload(backend_url: str) -> dict | None:
         return None
 
 
-def decide(inspect_data: dict, *, force_restart: bool = False) -> tuple[int, str, bool]:
-    """Return (exit_code, reason, should_restart)."""
+def resolve_frontend_url(inspect_data: dict, override: str | None = None) -> str:
+    if override:
+        return override.rstrip("/")
+    deployment = inspect_data.get("latest_deployment") or {}
+    url = str(deployment.get("url") or "").strip()
+    return (url or DEFAULT_FRONTEND).rstrip("/")
+
+
+def decide(
+    inspect_data: dict,
+    *,
+    force_deploy: bool = False,
+    frontend_url: str | None = None,
+    frontend_status: int | None = None,
+) -> tuple[int, str, bool]:
+    """Return (exit_code, reason, needs_deploy)."""
     if inspect_data.get("any_environment_credit_paused"):
-        return 11, "Cloud credits paused; not restarting", False
+        return 11, "Cloud credits paused; not deploying", False
 
     deployment = inspect_data.get("latest_deployment") or {}
     status = str(deployment.get("status") or "").strip()
@@ -109,14 +128,20 @@ def decide(inspect_data: dict, *, force_restart: bool = False) -> tuple[int, str
         return 2, "inspect JSON has no backend_url", False
 
     status_l = status.lower()
-    if status_l in SKIP_RESTART_STATUSES:
+    if status_l in SKIP_DEPLOY_STATUSES:
         return 0, f"deployment is {status}; skipping probe", False
 
-    if force_restart:
-        return 10, "force_restart requested", True
+    if force_deploy:
+        return 10, "force_deploy requested", True
 
     if status_l in DOWN_STATUSES:
         return 10, f"Cloud status is {status or 'unknown'}", True
+
+    fe_url = resolve_frontend_url(inspect_data, frontend_url)
+    if frontend_status is None:
+        frontend_status, _ = frontend_result(fe_url)
+    if frontend_status == 404 or 500 <= frontend_status < 600:
+        return 10, f"frontend HTTP {frontend_status} ({fe_url})", True
 
     ping_status, ping_body = ping_result(backend_url)
     if ping_status == 200 and "pong" in ping_body.lower():
@@ -131,16 +156,13 @@ def decide(inspect_data: dict, *, force_restart: bool = False) -> tuple[int, str
             return 11, f"worker up but dependencies unhealthy: {health}", False
         return 0, f"healthy (Cloud status={status or 'unknown'})", False
 
-    # Fly's public backend URL often fails TLS from GitHub runners (and
-    # other networks) even while Cloud inspect says Running. Stopping the
-    # app on that signal takes the site down. Only bounce on HTTP 5xx.
     if 500 <= ping_status < 600:
         return 10, f"backend HTTP {ping_status} while Cloud status={status}", True
 
     return (
         0,
         f"Cloud status={status or 'unknown'}; /ping/ unreachable from this "
-        f"runner (HTTP {ping_status}) — not restarting",
+        f"runner (HTTP {ping_status}) — not deploying",
         False,
     )
 
@@ -158,11 +180,16 @@ def main(argv: list[str] | None = None) -> int:
         metavar=("RAW", "OUT"),
         help="Copy the JSON object from RAW CLI output into OUT.",
     )
-    parser.add_argument("--force-restart", action="store_true")
+    parser.add_argument("--force-deploy", action="store_true")
+    parser.add_argument(
+        "--frontend-url",
+        default=os.environ.get("FRONTEND_URL", ""),
+        help="Public frontend URL (default: inspect url or dss-clustering.reflex.run)",
+    )
     parser.add_argument(
         "--require-healthy",
         action="store_true",
-        help="Exit 1 unless the worker is healthy (used after a restart).",
+        help="Exit 1 unless decide() reports healthy (used after a deploy).",
     )
     args = parser.parse_args(argv)
 
@@ -172,15 +199,14 @@ def main(argv: list[str] | None = None) -> int:
             data = load_inspect(src)
         except Exception as exc:  # noqa: BLE001
             print(f"cannot parse inspect JSON: {exc}")
-            _github_output("restart", "false")
-            _github_output("start_only", "false")
-            _github_output("reason", "inspect-parse-failed")
+            _emit(False, "inspect-parse-failed")
             return 2
         with open(dest, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
         dep = data.get("latest_deployment") or {}
         print("status", dep.get("status"))
         print("backend", data.get("backend_url"))
+        print("frontend", dep.get("url"))
         return 0
 
     if not args.inspect_json:
@@ -190,20 +216,15 @@ def main(argv: list[str] | None = None) -> int:
         data = load_inspect(args.inspect_json)
     except Exception as exc:  # noqa: BLE001
         print(f"cannot parse inspect JSON: {exc}")
-        _github_output("restart", "false")
-        _github_output("start_only", "false")
-        _github_output("reason", "inspect-parse-failed")
+        _emit(False, "inspect-parse-failed")
         return 2
 
-    code, reason, restart = decide(data, force_restart=args.force_restart)
+    fe = args.frontend_url.strip() or None
+    code, reason, needs_deploy = decide(
+        data, force_deploy=args.force_deploy, frontend_url=fe
+    )
     print(reason)
-    status_l = str(
-        (data.get("latest_deployment") or {}).get("status") or ""
-    ).lower()
-    start_only = restart and status_l in DOWN_STATUSES and not args.force_restart
-    _github_output("restart", "true" if restart else "false")
-    _github_output("start_only", "true" if start_only else "false")
-    _github_output("reason", reason.replace("\n", " ")[:200])
+    _emit(needs_deploy, reason)
 
     if args.require_healthy and code != 0:
         return 1

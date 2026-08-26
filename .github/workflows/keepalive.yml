@@ -1,15 +1,12 @@
-# Ping the Reflex Cloud *worker* (not the static frontend) every 15 minutes.
-# If /ping/ or Cloud status says the VM is dead, stop+start the app.
+# Every 15 minutes: probe Cloud + the public frontend.
+# If the app is dead, open a GitHub issue, reflex deploy (not start/stop),
+# then comment and close the issue when Cloud says Running.
 #
-# One-time setup (GitHub → Settings → Secrets and variables → Actions):
-#   Secret REFLEX_TOKEN
-#     Locally, while logged in to Reflex Cloud:
-#       .venv\Scripts\reflex.exe cloud create-token github-actions --duration 90
-#     Paste the printed token. Tokens last at most 90 days; rotate before expiry.
+# Secrets (Settings → Secrets and variables → Actions):
+#   REFLEX_TOKEN     reflex cloud create-token github-actions --duration 90
+#   REFLEX_ENVFILE   full text of local .env (so deploy does not wipe Cloud secrets)
 #
-# Failed runs email whoever has Actions notifications on for this repo.
-# A full `reflex deploy` is not automatic — restart is enough when the last
-# image is fine and the 1 GB VM simply died.
+# Watch the repo (or Issues) to get email on issue open / comment / close.
 
 name: Keepalive worker
 
@@ -18,8 +15,8 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
-      force_restart:
-        description: Stop and start the Cloud worker even if probes succeed
+      force_deploy:
+        description: Deploy even if probes look healthy
         type: boolean
         default: false
 
@@ -29,17 +26,19 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 env:
   APP_ID: 58d9680e-4c9d-4d5c-8e00-bebaefdb177d
+  FRONTEND_URL: https://dss-clustering.reflex.run
   PYTHONUNBUFFERED: "1"
 
 jobs:
   keepalive:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - name: Checkout probe script
+      - name: Checkout
         uses: actions/checkout@v6
 
       - name: Set up Python
@@ -57,10 +56,9 @@ jobs:
         run: |
           if [ -z "$REFLEX_TOKEN" ]; then
             echo "reason=Repository secret REFLEX_TOKEN is missing" >> "$GITHUB_OUTPUT"
-            echo "::error::Add repository secret REFLEX_TOKEN. On your PC run: reflex cloud create-token github-actions --duration 90"
+            echo "::error::Add repository secret REFLEX_TOKEN (reflex cloud create-token ...)."
             exit 1
           fi
-          echo "reason=" >> "$GITHUB_OUTPUT"
 
       - name: Inspect Cloud app
         id: inspect_app
@@ -76,9 +74,8 @@ jobs:
             cat inspect.err >&2
           fi
           if [ "$code" -ne 0 ]; then
-            echo "reason=reflex cloud apps inspect failed (exit $code); check token and app id" >> "$GITHUB_OUTPUT"
-            echo "::error::reflex cloud apps inspect failed with exit $code. If the token is wrong or expired, create a new REFLEX_TOKEN secret."
-            echo "----- inspect.raw -----" >&2
+            echo "reason=reflex cloud apps inspect failed (exit $code)" >> "$GITHUB_OUTPUT"
+            echo "::error::reflex cloud apps inspect failed with exit $code."
             cat inspect.raw >&2
             exit "$code"
           fi
@@ -87,11 +84,11 @@ jobs:
       - name: Probe worker
         id: probe
         env:
-          FORCE_RESTART: ${{ github.event.inputs.force_restart }}
+          FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
         run: |
           extra=""
-          if [ "$FORCE_RESTART" = "true" ]; then
-            extra="--force-restart"
+          if [ "$FORCE_DEPLOY" = "true" ]; then
+            extra="--force-deploy"
           fi
           set +e
           python .github/scripts/check_worker.py inspect.json $extra
@@ -99,88 +96,156 @@ jobs:
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 0 ]; then
-            echo "Worker is healthy."
+            echo "App looks healthy."
             exit 0
           fi
           if [ "$code" -eq 11 ]; then
-            echo "Worker process is up but DB/Redis is not. Not restarting."
+            echo "Dependencies unhealthy; not deploying."
             exit 1
           fi
           if [ "$code" -eq 10 ]; then
-            echo "Worker looks down."
+            echo "App looks dead."
             exit 0
           fi
           exit "$code"
 
-      - name: Restore restart cooldown stamp
-        if: steps.probe.outputs.restart == 'true'
+      - name: Close keepalive issue if already healthy
+        if: steps.probe.outputs.needs_deploy != 'true' && steps.probe.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/scripts/keepalive_issue.sh
+          num="$(.github/scripts/keepalive_issue.sh find || true)"
+          if [ -n "${num:-}" ]; then
+            .github/scripts/keepalive_issue.sh close "Recovered: probes are healthy again (${{ steps.probe.outputs.reason }}).
+
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+      - name: Open or update down issue
+        id: issue
+        if: steps.probe.outputs.needs_deploy == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/scripts/keepalive_issue.sh
+          num="$(.github/scripts/keepalive_issue.sh open "The live app looks down.
+
+- reason: \`${{ steps.probe.outputs.reason }}\`
+- frontend: $FRONTEND_URL
+- run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+A Reflex Cloud deploy will be attempted next (unless cooldown blocks it).")"
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+
+      - name: Restore deploy cooldown stamp
+        if: steps.probe.outputs.needs_deploy == 'true'
         uses: actions/cache/restore@v5
         with:
-          path: .keepalive-restart
-          key: keepalive-restart-${{ github.run_id }}
+          path: .keepalive-deploy
+          key: keepalive-deploy-${{ github.run_id }}
           restore-keys: |
-            keepalive-restart-
+            keepalive-deploy-
 
-      - name: Restart Cloud worker
-        id: restart
-        if: steps.probe.outputs.restart == 'true'
+      - name: Deploy to Reflex Cloud
+        id: deploy
+        if: steps.probe.outputs.needs_deploy == 'true'
         env:
           REFLEX_TOKEN: ${{ secrets.REFLEX_TOKEN }}
-          FORCE_RESTART: ${{ github.event.inputs.force_restart }}
-          START_ONLY: ${{ steps.probe.outputs.start_only }}
-          COOLDOWN_SEC: "2700"
+          REFLEX_ENVFILE: ${{ secrets.REFLEX_ENVFILE }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_DEPLOY: ${{ github.event.inputs.force_deploy }}
+          COOLDOWN_SEC: "3600"
         run: |
+          set -e
           now=$(date +%s)
-          if [ "$FORCE_RESTART" != "true" ] && [ -f .keepalive-restart ]; then
-            then=$(cat .keepalive-restart)
+          if [ "$FORCE_DEPLOY" != "true" ] && [ -f .keepalive-deploy ]; then
+            then=$(cat .keepalive-deploy)
             age=$((now - then))
             if [ "$age" -lt "$COOLDOWN_SEC" ]; then
-              echo "Last restart was ${age}s ago (cooldown ${COOLDOWN_SEC}s). Not restarting again."
+              echo "Last deploy was ${age}s ago (cooldown ${COOLDOWN_SEC}s)."
+              .github/scripts/keepalive_issue.sh comment "Still down. Skipping deploy (cooldown ${COOLDOWN_SEC}s, last deploy ${age}s ago).
+
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
               echo "skipped=true" >> "$GITHUB_OUTPUT"
               exit 1
             fi
           fi
-          if [ "$START_ONLY" = "true" ]; then
-            echo "Cloud reports the app stopped — starting it (no stop)."
-            reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
-          else
-            echo "Stopping then starting $APP_ID ..."
-            reflex cloud apps stop "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive || true
-            sleep 8
-            reflex cloud apps start "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive
+          if [ -z "$REFLEX_ENVFILE" ]; then
+            echo "::error::Add repository secret REFLEX_ENVFILE (full local .env). An empty file would wipe Cloud secrets."
+            .github/scripts/keepalive_issue.sh comment "Deploy aborted: repository secret REFLEX_ENVFILE is missing." || true
+            exit 1
           fi
-          echo "$now" > .keepalive-restart
-          echo "Waiting for the worker to come up..."
-          sleep 90
+          printf '%s\n' "$REFLEX_ENVFILE" > .env
+          .github/scripts/keepalive_issue.sh comment "Deploying from run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
+          reflex deploy --config cloud.yml --no-interactive --project-name "Default Project" --token "$REFLEX_TOKEN" --envfile .env --description "Keepalive auto-deploy" \
+            --exclude-from-backend master_dataset.pkl \
+            --exclude-from-backend lemma.py \
+            --exclude-from-backend morphological.py \
+            --exclude-from-backend _spec_extracted.txt \
+            --exclude-from-backend hebrew_stylometry_webapp_specification.docx \
+            --exclude-from-backend tests \
+            --exclude-from-backend scripts \
+            --exclude-from-backend .pytest_cache \
+            --exclude-from-backend .agents \
+            --exclude-from-backend .states \
+            --exclude-from-backend .git \
+            --exclude-from-backend .venv \
+            --exclude-from-backend .web
+          rm -f .env
+          echo "$now" > .keepalive-deploy
+          echo "Waiting for Cloud status..."
+          sleep 20
           set +e
           reflex cloud apps inspect "$APP_ID" --token "$REFLEX_TOKEN" --no-interactive --json > inspect.raw 2> inspect.err
           set -e
           python .github/scripts/check_worker.py --extract-inspect inspect.raw inspect.json
           python .github/scripts/check_worker.py inspect.json --require-healthy
 
-      - name: Save restart cooldown stamp
-        if: steps.restart.outcome == 'success'
+      - name: Save deploy cooldown stamp
+        if: steps.deploy.outcome == 'success'
         uses: actions/cache/save@v5
         with:
-          path: .keepalive-restart
-          key: keepalive-restart-${{ github.run_id }}
+          path: .keepalive-deploy
+          key: keepalive-deploy-${{ github.run_id }}
+
+      - name: Comment recovered and close issue
+        if: steps.deploy.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/scripts/keepalive_issue.sh
+          .github/scripts/keepalive_issue.sh close "Recovered: Cloud status is Running after deploy.
+
+Frontend: $FRONTEND_URL
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Comment deploy failed
+        if: steps.probe.outputs.needs_deploy == 'true' && steps.deploy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x .github/scripts/keepalive_issue.sh
+          .github/scripts/keepalive_issue.sh comment "Deploy did not leave the app healthy. The issue stays open.
+
+Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
 
       - name: Job summary
         if: always()
         run: |
           REASON='${{ steps.probe.outputs.reason }}'
-          RESTART='${{ steps.probe.outputs.restart }}'
+          DEPLOY='${{ steps.probe.outputs.needs_deploy }}'
           TOKEN_REASON='${{ steps.token.outputs.reason }}'
           INSPECT_REASON='${{ steps.inspect_app.outputs.reason }}'
           if [ -z "$REASON" ]; then
-            REASON="${TOKEN_REASON:-${INSPECT_REASON:-Probe did not run. Open the failed step: usually a missing or invalid REFLEX_TOKEN secret.}}"
+            REASON="${TOKEN_REASON:-${INSPECT_REASON:-Probe did not run.}}"
           fi
-          if [ -z "$RESTART" ]; then
-            RESTART="false"
+          if [ -z "$DEPLOY" ]; then
+            DEPLOY="false"
           fi
           {
             echo "## Keepalive"
             echo "- reason: \`${REASON}\`"
-            echo "- restart requested: \`${RESTART}\`"
-            echo "- frontend: https://dss-clustering.reflex.run"
+            echo "- needs deploy: \`${DEPLOY}\`"
+            echo "- frontend: $FRONTEND_URL"
           } >> "$GITHUB_STEP_SUMMARY"
