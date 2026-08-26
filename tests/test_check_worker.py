@@ -18,6 +18,12 @@ def test_parse_inspect_strips_cli_noise():
     assert data["latest_deployment"]["status"] == "Running"
 
 
+def test_parse_inspect_allows_control_characters_in_strings():
+    raw = '{"backend_url": "https://x", "description": "line1\nline2"}'
+    data = check_worker.parse_inspect_text(raw)
+    assert "line1" in data["description"]
+
+
 def test_stopped_status_requests_restart():
     code, _, restart = check_worker.decide(
         {

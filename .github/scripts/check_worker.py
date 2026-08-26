@@ -45,7 +45,8 @@ def parse_inspect_text(raw: str) -> dict:
     end = raw.rfind("}")
     if start < 0 or end < start:
         raise ValueError("inspect output has no JSON object")
-    return json.loads(raw[start : end + 1])
+    # Reflex CLI --json can emit literal newlines inside string fields.
+    return json.loads(raw[start : end + 1], strict=False)
 
 
 def http_get(url: str, timeout: int = PING_TIMEOUT_SEC) -> tuple[int, str]:
