@@ -11,6 +11,7 @@ from pypdf import PdfReader
 
 from dss_clustering.export.writers import (
     write_count_matrix_csv,
+    write_excel_side_by_side,
     write_table,
 )
 from dss_clustering.styles import EXPORT_FOOTER
@@ -35,6 +36,41 @@ def test_write_csv_excel_pdf_roundtrip_bytes():
                 for page in PdfReader(io.BytesIO(data)).pages
             )
             assert EXPORT_FOOTER in text
+
+
+def test_write_excel_side_by_side_places_tables_in_adjacent_columns():
+    from openpyxl import load_workbook
+
+    distinctive = [{"rank": 1, "signature": "א", "score": "0.9"}]
+    common = [{"rank": 1, "signature": "הַ", "score": "0.4"}]
+    data, filename, mime = write_excel_side_by_side(
+        [
+            {"title": "Top features", "subtitle": "in X", "rows": ROWS},
+            {"title": "Common features", "subtitle": "in both X and Y", "rows": common},
+            {"title": "Distinctive", "subtitle": "X > Y", "rows": distinctive},
+            {"title": "Gap", "subtitle": "Y > X", "rows": []},
+        ],
+        "all four",
+    )
+    assert filename.endswith(".xlsx")
+    assert "spreadsheet" in mime
+    wb = load_workbook(io.BytesIO(data))
+    ws = wb.active
+    assert ws["A1"].value == "Top features"
+    assert ws["E1"].value == "Common features"
+    assert ws["I1"].value == "Distinctive"
+    assert ws["M1"].value == "Gap"
+    assert ws["A2"].value == "in X"
+    assert ws["E2"].value == "in both X and Y"
+    assert ws["I2"].value == "X > Y"
+    assert ws["A3"].value == "#"
+    assert ws["B4"].value == "וְ"
+    assert ws["E4"].value == 1
+    assert ws["F4"].value == "הַ"
+    assert ws["I4"].value == 1
+    assert ws["J4"].value == "א"
+    assert ws["M4"].value is None
+    assert ws.freeze_panes == "A4"
 
 
 def test_write_raw_count_matrix_csv():

@@ -52,6 +52,26 @@ def shared_features(
     return frame.loc[ids].mean().nlargest(n)
 
 
+def common_features(
+    frame: pd.DataFrame,
+    group_a: Iterable[int],
+    group_b: Iterable[int],
+    n: int = TOP_N,
+) -> pd.Series:
+    """Features used in both groups, ranked by mean usage on the union."""
+    a = [i for i in group_a if i in frame.index]
+    b = [i for i in group_b if i in frame.index]
+    if not a or not b:
+        return pd.Series(dtype=float)
+    a_mean = frame.loc[a].mean()
+    b_mean = frame.loc[b].mean()
+    both = (a_mean > 0) & (b_mean > 0)
+    if not bool(both.any()):
+        return pd.Series(dtype=float)
+    union_ids = list(dict.fromkeys(a + b))
+    return frame.loc[union_ids].mean().loc[both].nlargest(n)
+
+
 def diff_features(
     frame: pd.DataFrame,
     group_a: Iterable[int],

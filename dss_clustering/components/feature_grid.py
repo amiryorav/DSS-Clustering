@@ -14,9 +14,9 @@ from dss_clustering.components.help import help_button, help_panel
 
 def _feature_row(row: dict) -> rx.Component:
     return rx.table.row(
-        rx.table.cell(row["rank"]),
-        rx.table.cell(row["signature"]),
-        rx.table.cell(row["score"]),
+        rx.table.cell(row["rank"], white_space="nowrap"),
+        rx.table.cell(row["signature"], white_space="nowrap"),
+        rx.table.cell(row["score"], white_space="nowrap"),
     )
 
 
@@ -31,12 +31,14 @@ def feature_grid(
     export_source: str | None = None,
     export_kind: str | None = None,
 ) -> rx.Component:
-    """Scrollable feature table (top / distinctive / gap).
+    """Scrollable feature table (top / common / distinctive / gap).
 
     ``title`` stays short and single-line so the three grids in a row line up.
     ``subtitle`` carries the (possibly long) comparison detail in a fixed-height
     box, which keeps every table starting at the same vertical offset even when
     one caption wraps to two lines and another does not.
+    Long signatures stay on one line; the box scrolls horizontally and
+    vertically so the three side-by-side tables stay the same width.
     """
     title_row = (
         rx.hstack(
@@ -77,18 +79,22 @@ def feature_grid(
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
-                        rx.table.column_header_cell("#"),
-                        rx.table.column_header_cell("Signature"),
-                        rx.table.column_header_cell("Score"),
+                        rx.table.column_header_cell("#", white_space="nowrap"),
+                        rx.table.column_header_cell(
+                            "Signature", white_space="nowrap"
+                        ),
+                        rx.table.column_header_cell("Score", white_space="nowrap"),
                     ),
                 ),
                 rx.table.body(rx.foreach(rows, _feature_row)),
-                width="100%",
+                width="max-content",
+                min_width="100%",
                 variant="surface",
                 size="1",
             ),
             width="100%",
             max_height=height,
+            overflow_x="auto",
             overflow_y="auto",
             border="1px solid var(--gray-a6)",
             border_radius="md",

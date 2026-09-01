@@ -6,6 +6,8 @@ in the numbers section, where a group can be either side of an X/Y pair.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import reflex as rx
 
 from dss_clustering.repository import (
@@ -17,12 +19,24 @@ from dss_clustering.states.data_state import DataState
 from dss_clustering.states.feature_state import FeatureState
 
 
+def union_document_ids(existing: list[int], incoming: list[int]) -> tuple[list[int], int]:
+    """Append new ids, preserving the current order. Returns (ids, n_added)."""
+    seen = set(existing)
+    added: list[int] = []
+    for document_id in incoming:
+        if document_id not in seen:
+            seen.add(document_id)
+            added.append(document_id)
+    return [*existing, *added], len(added)
+
+
 class ManualClusterState(rx.State):
     """Click-to-select books and save them as a reusable group."""
 
     picking: bool = False
     picked_document_ids: list[int] = []
     saved_name: str = ""
+    cluster_to_add: str = ""
     # Nested under The numbers; closed until the visitor asks for it.
     show_builder: bool = False
     # Saved groups for the current user, loaded from `manual_clusters`.
@@ -90,6 +104,58 @@ class ManualClusterState(rx.State):
     @rx.event
     def set_saved_name(self, value: str):
         self.saved_name = value
+
+    @rx.event
+    def set_cluster_to_add(self, value: str | list[str]):
+        self.cluster_to_add = str(value[0] if isinstance(value, list) else value)
+
+    @rx.var(cache=True)
+    async def cluster_add_options(self) -> list[dict]:
+        """Current dendrogram cut, for adding a whole cluster to this group."""
+        from dss_clustering.states.dendrogram_state import DendrogramState
+
+        dendro = await self.get_state(DendrogramState)
+        counts = Counter(int(v) for v in dendro.cluster_of.values())
+        return [
+            {
+                "value": str(cluster_id),
+                "label": f"Cluster {cluster_id} ({counts[cluster_id]} books)",
+            }
+            for cluster_id in sorted(counts)
+        ]
+
+    @rx.event
+    async def add_dendrogram_cluster(self):
+        """Union every book in the chosen dendrogram cluster into the pick."""
+        from dss_clustering.states.dendrogram_state import DendrogramState
+
+        chosen = self.cluster_to_add.strip()
+        if not chosen:
+            self.status_message = "Choose a dendrogram cluster first."
+            return
+        dendro = await self.get_state(DendrogramState)
+        incoming = sorted(
+            int(doc_id)
+            for doc_id, cluster_id in dendro.cluster_of.items()
+            if str(cluster_id) == chosen
+        )
+        if not incoming:
+            self.status_message = f"Cluster {chosen} has no books at this cut."
+            return
+        self.picked_document_ids, n_added = union_document_ids(
+            self.picked_document_ids, incoming
+        )
+        self.picking = True
+        n_total = len(self.picked_document_ids)
+        if n_added == 0:
+            self.status_message = (
+                f"All {len(incoming)} books from cluster {chosen} are already "
+                f"in the group ({n_total} total)."
+            )
+            return
+        self.status_message = (
+            f"Added cluster {chosen} ({n_added} new book(s); {n_total} total)."
+        )
 
     @rx.event
     def toggle_document(self, document_id: int):

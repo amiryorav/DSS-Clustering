@@ -17,13 +17,14 @@ from dss_clustering.states.plot_state import (
     METHOD_TSNE,
     METHOD_UMAP,
     PANEL_SINGLE,
-    PANEL_SVD_A,
+    PANEL_PCA,
     PANEL_SVD_B,
     PANEL_TSNE,
     PANEL_UMAP,
     ROTATE_STEP_DEGREES,
     ZOOM_FACTOR,
     PlotState,
+    plot_root_id,
 )
 
 # Buttons drive the camera, so Plotly's own modebar would only duplicate them.
@@ -32,6 +33,12 @@ PLOT_CONFIG = {
     "displaylogo": False,
     "displayModeBar": False,
     "responsive": True,
+}
+# Four gl3d scenes plus a disappearing overlay: Plotly's responsive
+# relayout can freeze the tab. Camera pads still resize the view.
+GRID_PLOT_CONFIG = {
+    **PLOT_CONFIG,
+    "responsive": False,
 }
 
 
@@ -86,20 +93,40 @@ def _camera_pad(panel: str) -> rx.Component:
     )
 
 
-def _grid_panel(panel: str, title, figure) -> rx.Component:
+def _grid_panel(panel: str, title, figure, ready, empty=None) -> rx.Component:
+    fallback = empty or rx.text("Not available", size="2", color="gray")
     return rx.vstack(
         rx.hstack(
             rx.text(title, size="2", weight="bold"),
             rx.spacer(),
+            plot_export_bar(kind="plot", panel=panel),
             _camera_pad(panel),
             width="100%",
             align="center",
+            flex_wrap="wrap",
         ),
-        rx.plotly(
-            data=figure,
-            config=PLOT_CONFIG,
-            on_click=PlotState.on_point_click,
-            width="100%",
+        rx.cond(
+            ready,
+            rx.box(
+                rx.plotly(
+                    data=figure,
+                    config=GRID_PLOT_CONFIG,
+                    on_click=PlotState.on_point_click,
+                    width="100%",
+                ),
+                id=plot_root_id(panel),
+                width="100%",
+            ),
+            rx.center(
+                rx.cond(
+                    PlotState.is_fitting_viz,
+                    rx.spinner(size="2"),
+                    fallback,
+                ),
+                width="100%",
+                min_height="420px",
+                padding="1rem",
+            ),
         ),
         width="100%",
         spacing="2",
@@ -117,7 +144,7 @@ def _dim_input(label: str, value, on_change, disabled=False) -> rx.Component:
             value=value.to(str),
             on_change=on_change,
             width="4.5rem",
-            min=0,
+            min=1,
             disabled=disabled,
         ),
         spacing="2",
@@ -160,7 +187,7 @@ def _palette_picker(current_color, document_id) -> rx.Component:
         ),
         rx.popover.content(
             rx.vstack(
-                rx.text("Color (no recalculation)", size="2", weight="bold"),
+                rx.text("Color", size="2", weight="bold"),
                 rx.grid(
                     *[
                         rx.popover.close(
@@ -183,7 +210,11 @@ def _palette_picker(current_color, document_id) -> rx.Component:
                 ),
                 rx.popover.close(
                     rx.button(
-                        "Reset to corpus default",
+                        rx.cond(
+                            PlotState.color_mode == COLOR_CLUSTER,
+                            "Reset to cluster color",
+                            "Reset to corpus default",
+                        ),
                         size="1",
                         variant="soft",
                         on_click=PlotState.clear_book_color(document_id),
@@ -336,7 +367,7 @@ def plot_step() -> rx.Component:
             ),
             tip_button(
                 rx.cond(PlotState.show_grid, "Single view", "Compare 4 views"),
-                "Show SVD 0-1-2, SVD 1-2-3, UMAP and t-SNE side by side",
+                "Show SVD and t-SNE side by side. PCA and UMAP stay off until you click Fit.",
                 on_click=PlotState.toggle_grid,
                 size="2",
                 variant="soft",
@@ -357,7 +388,7 @@ def plot_step() -> rx.Component:
                     rx.hstack(
                         tip_button(
                             "Rebuild grid",
-                            "Refit all four views with the current settings",
+                            "Refit SVD and t-SNE. PCA and UMAP are refit only if you already fitted them.",
                             on_click=PlotState.build_grid,
                             size="1",
                             variant="soft",
@@ -374,24 +405,66 @@ def plot_step() -> rx.Component:
                     ),
                     rx.grid(
                         _grid_panel(
-                            PANEL_SVD_A,
-                            PlotState.grid_title_svd_a,
-                            PlotState.figure_svd_a,
+                            PANEL_PCA,
+                            PlotState.grid_title_pca,
+                            PlotState.figure_pca,
+                            PlotState.grid_ready_pca,
+                            empty=rx.vstack(
+                                rx.text(
+                                    PlotState.pca_skip_message,
+                                    size="2",
+                                    color="gray",
+                                    text_align="center",
+                                ),
+                                tip_button(
+                                    "Fit PCA",
+                                    "Compute PCA for this cell (no blocking overlay)",
+                                    on_click=PlotState.fit_grid_pca,
+                                    size="1",
+                                    variant="soft",
+                                    loading=PlotState.is_fitting_pca,
+                                    disabled=PlotState.is_fitting_viz,
+                                ),
+                                spacing="3",
+                                align="center",
+                            ),
                         ),
                         _grid_panel(
                             PANEL_SVD_B,
                             PlotState.grid_title_svd_b,
                             PlotState.figure_svd_b,
+                            PlotState.grid_ready_svd_b,
                         ),
                         _grid_panel(
                             PANEL_UMAP,
                             PlotState.grid_title_umap,
                             PlotState.figure_umap,
+                            PlotState.grid_ready_umap,
+                            empty=rx.vstack(
+                                rx.text(
+                                    PlotState.umap_skip_message,
+                                    size="2",
+                                    color="gray",
+                                    text_align="center",
+                                ),
+                                tip_button(
+                                    "Fit UMAP",
+                                    "Compute UMAP for this cell (heavy; no blocking overlay)",
+                                    on_click=PlotState.fit_grid_umap,
+                                    size="1",
+                                    variant="soft",
+                                    loading=PlotState.is_fitting_umap,
+                                    disabled=PlotState.is_fitting_viz,
+                                ),
+                                spacing="3",
+                                align="center",
+                            ),
                         ),
                         _grid_panel(
                             PANEL_TSNE,
                             PlotState.grid_title_tsne,
                             PlotState.figure_tsne,
+                            PlotState.grid_ready_tsne,
                         ),
                         # Radix's md starts at 1024px, which leaves laptops in a
                         # single column; sm (768px) is where two panels still fit.
@@ -402,12 +475,24 @@ def plot_step() -> rx.Component:
                     width="100%",
                     spacing="2",
                 ),
+                rx.vstack(
+                    rx.spinner(size="3"),
+                    rx.text(
+                        PlotState.status_message,
+                        size="2",
+                        color="gray",
+                    ),
+                    spacing="3",
+                    align="center",
+                    width="100%",
+                    padding="2rem",
+                ),
             ),
             rx.cond(
                 PlotState.has_figure,
                 rx.vstack(
                     rx.hstack(
-                        plot_export_bar(kind="plot"),
+                        plot_export_bar(kind="plot", panel=PANEL_SINGLE),
                         rx.spacer(),
                         _camera_pad(PANEL_SINGLE),
                         width="100%",
@@ -422,6 +507,7 @@ def plot_step() -> rx.Component:
                             on_click=PlotState.on_point_click,
                             width="100%",
                         ),
+                        id=plot_root_id(PANEL_SINGLE),
                         width="100%",
                         max_width="1100px",
                         margin_x="auto",
@@ -441,11 +527,23 @@ def plot_step() -> rx.Component:
             rx.vstack(
                 rx.vstack(
                     rx.heading("Book coloring", size="5", weight="bold"),
-                    rx.text(
-                        "Show or hide whole corpora and individual books, and "
-                        "give any book its own color on the map.",
-                        size="2",
-                        color="gray",
+                    rx.cond(
+                        PlotState.color_mode == COLOR_CLUSTER,
+                        rx.text(
+                            "Cluster colors come from the current dendrogram cut. "
+                            "Change any book by hand afterward; Reset restores "
+                            "that book's cluster color. Reset colors to default "
+                            "clears every hand-picked color.",
+                            size="2",
+                            color="gray",
+                        ),
+                        rx.text(
+                            "Show or hide whole corpora and individual books, and "
+                            "give any book its own color on the map. Reset colors "
+                            "to default clears every hand-picked color.",
+                            size="2",
+                            color="gray",
+                        ),
                     ),
                     spacing="1",
                     align="start",
@@ -498,6 +596,13 @@ def plot_step() -> rx.Component:
                         size="1",
                         variant="soft",
                         on_click=PlotState.show_all_books,
+                    ),
+                    tip_button(
+                        "Reset colors to default",
+                        "Clear every hand-picked color and restore dendrogram cluster or corpus/identity colors.",
+                        size="1",
+                        variant="soft",
+                        on_click=PlotState.clear_all_book_colors,
                     ),
                     width="100%",
                     align="center",

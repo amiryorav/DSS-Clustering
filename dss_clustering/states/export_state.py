@@ -1,21 +1,22 @@
-"""Per-panel table/plot export (spec §8.11, localhost — no activity DB)."""
+"""Per-panel table export (spec §8.11, localhost — no activity DB).
+
+Plot PNG/PDF downloads run in the browser via Plotly.toImage so Cloud VMs
+do not need Chromium/Kaleido.
+"""
 
 from __future__ import annotations
 
-from copy import deepcopy
-
 import reflex as rx
-from plotly.graph_objects import Figure
 
 from dss_clustering.export.writers import (
     write_count_matrix_csv,
-    write_plot_image,
+    write_excel_side_by_side,
     write_table,
 )
 
 
 class ExportState(rx.State):
-    """Generate downloadable files for the current table or plot view."""
+    """Generate downloadable files for the current table view."""
 
     status_message: str = ""
 
@@ -70,63 +71,52 @@ class ExportState(rx.State):
             self.status_message = f"Export failed: {exc}"
 
     @rx.event
-    async def export_plot(self, fmt: str):
-        from dss_clustering.states.plot_state import PlotState
+    async def export_all_feature_tables(self):
+        """Download top, common, distinctive, and gap tables side by side."""
+        from dss_clustering.states.table_state import TableState
 
-        plot = await self.get_state(PlotState)
-        if not plot.has_figure:
-            self.status_message = "No 3D plot to export."
+        table = await self.get_state(TableState)
+        blocks = [
+            {
+                "title": "Top features",
+                "subtitle": table.top_subtitle,
+                "rows": list(table.filtered_top_rows),
+            },
+            {
+                "title": "Common features",
+                "subtitle": table.common_subtitle,
+                "rows": list(table.filtered_common_rows),
+            },
+            {
+                "title": "Distinctive",
+                "subtitle": table.distinctive_subtitle,
+                "rows": list(table.filtered_distinctive_rows),
+            },
+            {
+                "title": "Gap",
+                "subtitle": table.gap_subtitle,
+                "rows": list(table.filtered_gap_rows),
+            },
+        ]
+        if not any(block["rows"] for block in blocks):
+            self.status_message = "Nothing to export — run Compare first."
             return
-        figure = deepcopy(plot.figure)
-        if plot.camera:
-            figure.update_layout(scene_camera=plot.camera)
-        return self._download_figure(figure, f"plot_{plot.method}", fmt)
-
-    @rx.event
-    async def export_dendrogram(self, fmt: str):
-        from dss_clustering.pipeline.dendrogram import figure_min_width
-        from dss_clustering.states.dendrogram_state import DendrogramState
-
-        dendro = await self.get_state(DendrogramState)
-        if not dendro.has_tree:
-            self.status_message = "No dendrogram to export."
-            return
-        # The interactive chart scrolls horizontally, but a static export does
-        # not. Give each leaf the same horizontal room it receives on screen.
-        width = max(1600, figure_min_width(dendro.n_documents))
-        height = max(900, int(dendro.figure.layout.height or 800))
-        download = self._download_figure(
-            dendro.figure, "dendrogram", fmt, width=width, height=height
-        )
-        # The browser download is sufficient feedback; avoid leaving a noisy
-        # timestamped "Downloading …" line under the chart.
-        if not self.status_message.startswith("Plot export failed:"):
-            self.status_message = ""
-        return download
-
-    def _download_figure(
-        self,
-        fig: Figure,
-        stem: str,
-        fmt: str,
-        *,
-        width: int = 1200,
-        height: int = 800,
-    ):
         try:
-            data, filename, mime = write_plot_image(
-                fig, stem, fmt, width=width, height=height
+            data, filename, mime = write_excel_side_by_side(
+                blocks,
+                f"tables_all_{table.export_slug}",
             )
             self.status_message = f"Downloading {filename}"
             return rx.download(data=data, filename=filename, mime_type=mime)
         except Exception as exc:  # noqa: BLE001
-            self.status_message = f"Plot export failed: {exc}"
+            self.status_message = f"Export failed: {exc}"
 
     async def _resolve_feature_rows(
         self, source: str, kind: str
     ) -> tuple[list[dict], str, str]:
         titles = {
             "top": "Top features",
+            "common": "Common features",
             "distinctive": "Distinctive features",
             "gap": "Gap features",
         }
@@ -137,6 +127,7 @@ class ExportState(rx.State):
             table = await self.get_state(TableState)
             mapping = {
                 "top": table.filtered_top_rows,
+                "common": table.filtered_common_rows,
                 "distinctive": table.filtered_distinctive_rows,
                 "gap": table.filtered_gap_rows,
             }

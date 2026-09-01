@@ -107,6 +107,7 @@ Zevah,Zevachim
 11Q19,11Q19 - Temple Scroll a
 11Q20,11Q20 - Temple Scroll b
 11Q5,11Q5 - Great Psalms Scroll
+11Q6,11Q6 - Psalms b
 1Q14,1Q14 - Pesher Micah
 1Q16,1Q16 - Pesher Psalms
 1Q17,1Q17 - Jubilees
@@ -137,6 +138,7 @@ Zevah,Zevachim
 4Q167,4Q167 - Pesher Hosea b
 4Q168,4Q168 - Pesher Micah
 4Q169,4Q169 - Pesher Nahum
+4Q171,4Q171 - Pesher Psalms a
 4Q173,4Q173 - Pesher Psalms b
 4Q174,4Q174 - Florilegium
 4Q175,4Q175 - Testimonia
@@ -147,7 +149,9 @@ Zevah,Zevachim
 4Q180,4Q180 - Ages of Creation A
 4Q181,4Q181 - Ages of Creation B
 4Q184,4Q184 - Wiles of the Wicked Woman
+4Q185,4Q185 - Sapiential Work
 4Q186,4Q186 - Horoscope (Physiognomy)
+4Q215,4Q215 - Testament of Naphtali
 4Q215a,4Q215a - Time of Righteousness
 4Q216,4Q216 - Jubilees a
 4Q219,4Q219 - Jubilees d
@@ -210,6 +214,7 @@ Zevah,Zevachim
 4Q368,4Q368 - Apocryphal Pentateuch A
 4Q369,4Q369 - Prayer of Enosh
 4Q370,4Q370 - Admonition on the Flood
+4Q371,4Q371 - Narrative and Poetic Composition a
 4Q372,4Q372 - Narrative and Poetic Composition b
 4Q374,4Q374 - Discourse on the Exodus and Conquest
 4Q375,4Q375 - Apocryphon of Moses a
@@ -234,6 +239,7 @@ Zevah,Zevachim
 4Q393,4Q393 - Communal Confession
 4Q394,4Q394 - MMT a (Miqsat Maase ha-Torah)
 4Q395,4Q395 - MMT b
+4Q396,4Q396 - MMT c
 4Q397,4Q397 - MMT d
 4Q398,4Q398 - MMT e
 4Q400,4Q400 - Songs of the Sabbath Sacrifice a
@@ -257,6 +263,7 @@ Zevah,Zevachim
 4Q422,4Q422 - Paraphrase of Genesis and Exodus
 4Q423,4Q423 - Instruction g
 4Q424,4Q424 - Instruction-like Composition B
+4Q425,4Q425 - Sapiential-Didactic Work B
 4Q426,4Q426 - Sapiential-Hymnic Work A
 4Q427,4Q427 - Hodayot a
 4Q428,4Q428 - Hodayot b
@@ -267,10 +274,12 @@ Zevah,Zevachim
 4Q433a,4Q433a - Hodayot-like Text B
 4Q434,4Q434 - Barkhi Nafshi a
 4Q435,4Q435 - Barkhi Nafshi b
+4Q436,4Q436 - Barkhi Nafshi c
 4Q437,4Q437 - Barkhi Nafshi d
 4Q438,4Q438 - Barkhi Nafshi e
 4Q440,4Q440 - Hodayot-like Text C
 4Q443,4Q443 - Personal Prayer
+4Q444,4Q444 - Incantation
 4Q448,4Q448 - Apocryphal Psalm and Prayer
 4Q458,4Q458 - Narrative A
 4Q460,4Q460 - Narrative Work and Prayer
@@ -278,6 +287,7 @@ Zevah,Zevachim
 4Q464,4Q464 - Exposition on the Patriarchs
 4Q471,4Q471 - War Scroll-like Text B
 4Q471a,4Q471a - Polemical Text
+4Q471b,4Q471b - Self-Glorification Hymn
 4Q477,4Q477 - Rebukes Reported by the Overseer
 4Q487,4Q487 - Sapiential Work A b
 4Q490,4Q490 - War Scroll-like fragments

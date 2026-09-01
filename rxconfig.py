@@ -7,6 +7,9 @@ load_dotenv()
 config = rx.Config(
     app_name="dss_clustering",
     db_url=os.getenv("DATABASE_URL"),
+    # Cloud Redis: default 10s lock expires while serializing 3D Plotly grids.
+    redis_lock_expiration=120_000,
+    redis_lock_warning_threshold=30_000,
     plugins=[
         rx.plugins.RadixThemesPlugin(
             theme=rx.theme(

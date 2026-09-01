@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
+from types import SimpleNamespace
 
+import numpy as np
 import reflex as rx
 from plotly.graph_objects import Figure
 
+from dss_clustering.colors import resolve_book_color
 from dss_clustering.pipeline.plotting import make_3d_scatter
 from dss_clustering.pipeline.runtime import (
     VizEmbeddingBundle,
@@ -15,7 +19,12 @@ from dss_clustering.pipeline.runtime import (
     get_viz,
     put_viz,
 )
-from dss_clustering.pipeline.viz import fit_tsne, fit_umap, viz_params_key
+from dss_clustering.pipeline.viz import (
+    fit_pca,
+    fit_tsne,
+    fit_umap,
+    viz_params_key,
+)
 from dss_clustering.states.busy_state import BusyState
 from dss_clustering.states.data_state import (
     CORPUS_LABELS,
@@ -36,11 +45,11 @@ METHOD_TSNE = "tsne"
 
 # One camera pad per rendered scene: the big single plot plus the 2×2 comparison.
 PANEL_SINGLE = "single"
-PANEL_SVD_A = "svd_a"
+PANEL_PCA = "pca"
 PANEL_SVD_B = "svd_b"
 PANEL_UMAP = "umap"
 PANEL_TSNE = "tsne"
-GRID_PANELS = (PANEL_SVD_A, PANEL_SVD_B, PANEL_UMAP, PANEL_TSNE)
+GRID_PANELS = (PANEL_PCA, PANEL_SVD_B, PANEL_UMAP, PANEL_TSNE)
 ALL_PANELS = (PANEL_SINGLE, *GRID_PANELS)
 
 # Plotly's default eye (1.25, 1.25, 1.25) in spherical terms.
@@ -55,22 +64,32 @@ GRID_PANEL_HEIGHT = 420
 
 _FIGURE_ATTR = {
     PANEL_SINGLE: "figure",
-    PANEL_SVD_A: "figure_svd_a",
+    PANEL_PCA: "figure_pca",
     PANEL_SVD_B: "figure_svd_b",
     PANEL_UMAP: "figure_umap",
     PANEL_TSNE: "figure_tsne",
 }
 
-# Reads the live gl3d camera from the rendered figure (null before first draw).
-CAMERA_SNIPPET = """
-(() => {
-  const gd = document.querySelector('.js-plotly-plot');
-  const cam = gd && gd._fullLayout && gd._fullLayout.scene
-    ? gd._fullLayout.scene.camera
-    : null;
-  return cam ? JSON.parse(JSON.stringify(cam)) : null;
-})()
-"""
+_EXPORT_STEM = {
+    PANEL_SINGLE: "plot",
+    PANEL_PCA: "plot_pca",
+    PANEL_SVD_B: "plot_svd",
+    PANEL_UMAP: "plot_umap",
+    PANEL_TSNE: "plot_tsne",
+}
+
+_READY_ATTR = {
+    PANEL_PCA: "grid_ready_pca",
+    PANEL_SVD_B: "grid_ready_svd_b",
+    PANEL_UMAP: "grid_ready_umap",
+    PANEL_TSNE: "grid_ready_tsne",
+}
+
+
+def plot_root_id(panel: str) -> str:
+    """DOM id for the wrapper around one Plotly scene."""
+    return f"plot-panel-{panel}"
+
 
 # Wait for two browser paint frames after enabling the blocking overlay before
 # asking the backend to begin CPU-heavy dimensionality reduction.
@@ -80,24 +99,54 @@ new Promise((resolve) => {
 })
 """
 
+# 0-based TruncatedSVD columns. Column 0 is the first component and is skipped:
+# it often tracks document length rather than style.
+DEFAULT_SVD_DIMS = (1, 2, 3)
+
+
+def select_svd_plot_dims(
+    n_dims: int,
+    dim_x: int = DEFAULT_SVD_DIMS[0],
+    dim_y: int = DEFAULT_SVD_DIMS[1],
+    dim_z: int = DEFAULT_SVD_DIMS[2],
+) -> tuple[list[int], tuple[str, str, str], str, tuple[int, int, int]]:
+    """Pick 0-based SVD columns. Labels match those indices (never column 0)."""
+    n_dims = max(0, int(n_dims))
+    if n_dims < 1:
+        raise ValueError("Embedding has no dimensions to plot.")
+    max_idx = n_dims - 1
+    min_idx = 1 if n_dims > 1 else 0
+
+    def _clamp(dim: int) -> int:
+        try:
+            value = int(dim)
+        except (TypeError, ValueError):
+            value = min_idx
+        return min(max(min_idx, value), max_idx)
+
+    cols = [_clamp(dim_x), _clamp(dim_y), _clamp(dim_z)]
+    labels = (cols[0], cols[1], cols[2])
+    titles = (f"Dim {labels[0]}", f"Dim {labels[1]}", f"Dim {labels[2]}")
+    note = "SVD dims " + ",".join(str(d) for d in labels)
+    return cols, titles, note, labels
+
 
 class PlotState(rx.State):
     """Interactive 3D scatter — SVD (analysis) or UMAP/t-SNE (viz-only)."""
 
     method: str = METHOD_SVD
     color_mode: str = COLOR_IDENTITY
-    # Zero-based SVD component indices, matching the axis labels ("Dim 0" …).
-    dim_x: int = 1
-    dim_y: int = 2
-    dim_z: int = 3
-    label_mode: str = LABEL_SHORT
+    # 0-based SVD columns shown on the axes. Defaults skip column 0.
+    dim_x: int = DEFAULT_SVD_DIMS[0]
+    dim_y: int = DEFAULT_SVD_DIMS[1]
+    dim_z: int = DEFAULT_SVD_DIMS[2]
+    label_mode: str = LABEL_HIDDEN
     hidden_document_ids: list[str] = []
     visible_document_ids: list[int] = []
     plot_books: list[dict] = []
     book_search: str = ""
-    # Browser camera, read on demand so exports match the on-screen view.
+    # Last camera applied from the pad (single view). Dragged views live in the DOM.
     camera: dict = {}
-    pending_export_format: str = "png"
 
     # UMAP / t-SNE hyperparameters
     umap_n_neighbors: int = 15
@@ -110,17 +159,25 @@ class PlotState(rx.State):
     status_message: str = "Run SVD to generate the 3D plot."
     max_dim_index: int = 0
 
-    # 2×2 comparison grid: SVD 0-1-2, SVD 1-2-3, UMAP, t-SNE.
+    # 2×2 comparison grid: PCA, SVD 1-2-3, UMAP, t-SNE.
     show_grid: bool = False
     has_grid: bool = False
-    figure_svd_a: Figure = Figure()
+    figure_pca: Figure = Figure()
     figure_svd_b: Figure = Figure()
     figure_umap: Figure = Figure()
     figure_tsne: Figure = Figure()
-    grid_title_svd_a: str = "SVD dims 0,1,2"
+    grid_title_pca: str = "PCA"
     grid_title_svd_b: str = "SVD dims 1,2,3"
     grid_title_umap: str = "UMAP"
     grid_title_tsne: str = "t-SNE"
+    grid_ready_pca: bool = False
+    grid_ready_svd_b: bool = False
+    grid_ready_umap: bool = False
+    grid_ready_tsne: bool = False
+    umap_skip_message: str = ""
+    pca_skip_message: str = ""
+    is_fitting_pca: bool = False
+    is_fitting_umap: bool = False
     # Backend-only projection cache. UI-only changes (labels, colours, hidden
     # books) can redraw all four panels without fitting UMAP/t-SNE again.
     _grid_sources: dict = {}
@@ -213,7 +270,7 @@ class PlotState(rx.State):
     @rx.event
     def set_dim_x(self, value: str):
         try:
-            self.dim_x = max(0, int(value))
+            self.dim_x = max(1, int(value))
         except (TypeError, ValueError):
             return
         return PlotState.recompute
@@ -221,7 +278,7 @@ class PlotState(rx.State):
     @rx.event
     def set_dim_y(self, value: str):
         try:
-            self.dim_y = max(0, int(value))
+            self.dim_y = max(1, int(value))
         except (TypeError, ValueError):
             return
         return PlotState.recompute
@@ -229,7 +286,7 @@ class PlotState(rx.State):
     @rx.event
     def set_dim_z(self, value: str):
         try:
-            self.dim_z = max(0, int(value))
+            self.dim_z = max(1, int(value))
         except (TypeError, ValueError):
             return
         return PlotState.recompute
@@ -309,31 +366,6 @@ class PlotState(rx.State):
         return ManualClusterState.toggle_document(doc_id)
 
     @rx.event
-    def export_with_camera(self, fmt: str):
-        """Read the live camera out of the browser, then render the export.
-
-        Subscribing to Plotly's relayout events instead would push a state
-        update per rotation frame, and each one re-ran ``Plotly.react`` — a full
-        gl3d scene rebuild that re-vectorizes every text label and stalls the
-        main thread. Asking for the camera once per export keeps interaction on
-        the client where it belongs.
-        """
-        self.pending_export_format = "pdf" if str(fmt).lower() == "pdf" else "png"
-        return rx.call_script(
-            CAMERA_SNIPPET,
-            callback=PlotState.finish_export_with_camera,
-        )
-
-    @rx.event
-    async def finish_export_with_camera(self, camera):
-        """Store the browser camera, then hand off to the export writer."""
-        from dss_clustering.states.export_state import ExportState
-
-        if isinstance(camera, dict) and camera:
-            self.camera = camera
-        return ExportState.export_plot(self.pending_export_format)
-
-    @rx.event
     def toggle_book_visibility(self, document_id: int):
         key = str(document_id)
         if key in self.hidden_document_ids:
@@ -382,21 +414,50 @@ class PlotState(rx.State):
             ]
         return PlotState.refresh_visible_plots
 
+    async def _uses_cluster_colors(self) -> bool:
+        if self.color_mode != COLOR_CLUSTER:
+            return False
+        cluster_of, _ = await self._cluster_colors()
+        return bool(cluster_of)
+
     @rx.event
     async def set_book_color(self, document_id: int, color: str):
         data = await self.get_state(DataState)
+        key = str(document_id)
+        if await self._uses_cluster_colors():
+            data.document_cluster_color_override = {
+                **data.document_cluster_color_override,
+                key: color,
+            }
+            return PlotState.refresh_visible_plots
         data.document_color_override = {
             **data.document_color_override,
-            str(document_id): color,
+            key: color,
         }
         return self._identity_color_changed()
 
     @rx.event
     async def clear_book_color(self, document_id: int):
         data = await self.get_state(DataState)
+        key = str(document_id)
+        if await self._uses_cluster_colors():
+            overrides = dict(data.document_cluster_color_override)
+            overrides.pop(key, None)
+            data.document_cluster_color_override = overrides
+            return PlotState.refresh_visible_plots
         overrides = dict(data.document_color_override)
-        overrides.pop(str(document_id), None)
+        overrides.pop(key, None)
         data.document_color_override = overrides
+        return self._identity_color_changed()
+
+    @rx.event
+    async def clear_all_book_colors(self):
+        """Clear every hand-picked color for the active coloring mode."""
+        data = await self.get_state(DataState)
+        if await self._uses_cluster_colors():
+            data.document_cluster_color_override = {}
+            return PlotState.refresh_visible_plots
+        data.document_color_override = {}
         return self._identity_color_changed()
 
     def _identity_color_changed(self):
@@ -515,9 +576,9 @@ class PlotState(rx.State):
 
     @rx.event
     async def build_grid(self):
-        """Paint the overlay first — UMAP and t-SNE are both fitted here."""
+        """Paint the overlay first — PCA is cheap; UMAP and t-SNE dominate."""
         busy = await self.get_state(BusyState)
-        busy.begin("Fitting the four comparison views…")
+        busy.begin("Fitting SVD and t-SNE…")
         self.is_fitting_viz = True
         return rx.call_script(
             WAIT_FOR_BUSY_PAINT,
@@ -526,120 +587,363 @@ class PlotState(rx.State):
 
     @rx.event(background=True)
     async def run_grid_build(self, _painted: bool = True):
+        """Fit views off the state lock so the Cloud websocket stays alive."""
+        notes: list[str] = []
+        overlay_held = True
+        want_pca = False
+        want_umap = False
         try:
             async with self:
-                await self._build_grid()
+                want_pca = bool(self.grid_ready_pca)
+                want_umap = bool(self.grid_ready_umap)
+                snapshot = await self._grid_inputs()
+                if snapshot is None:
+                    return
+            overlay_held = await self._fit_grid_from_snapshot(
+                snapshot,
+                notes,
+                fit_pca_panel=want_pca,
+                fit_umap_panel=want_umap,
+            )
+        except Exception as exc:  # noqa: BLE001
+            async with self:
+                if not any(
+                    (
+                        self.grid_ready_pca,
+                        self.grid_ready_svd_b,
+                        self.grid_ready_umap,
+                        self.grid_ready_tsne,
+                    )
+                ):
+                    self.has_grid = False
+                self.status_message = f"Comparison grid failed: {exc}"
         finally:
             async with self:
                 self.is_fitting_viz = False
-                busy = await self.get_state(BusyState)
-                busy.end()
+                if overlay_held:
+                    busy = await self.get_state(BusyState)
+                    busy.end()
 
-    async def _build_grid(self):
+    async def _grid_inputs(self) -> dict | None:
+        """Read everything the fits need; caller must hold the state lock."""
         svd = await self.get_state(SVDState)
         rescale = await self.get_state(RescaleState)
-        data = await self.get_state(DataState)
         token = self.router.session.client_token
-
         emb = get_embedding(token)
         if not svd.has_embedding or emb is None:
             self.has_grid = False
             self.status_message = "Run SVD before building the comparison grid."
-            return
-
-        X = emb.embedding
+            return None
+        X = np.asarray(emb.embedding, dtype=np.float64)
         n_dims = int(X.shape[1])
-        svd_ids = list(emb.document_ids)
-
-        def svd_panel(start: int) -> tuple:
-            idx = [min(start + offset, n_dims - 1) for offset in range(3)]
-            titles = (f"Dim {idx[0]}", f"Dim {idx[1]}", f"Dim {idx[2]}")
-            return X[:, idx], titles, "SVD dims " + ",".join(str(i) for i in idx)
-
-        panels: list[tuple[str, object, tuple, str, list[int]]] = []
-        coords_a, titles_a, label_a = svd_panel(0)
-        panels.append((PANEL_SVD_A, coords_a, titles_a, label_a, svd_ids))
-        coords_b, titles_b, label_b = svd_panel(1)
-        panels.append((PANEL_SVD_B, coords_b, titles_b, label_b, svd_ids))
-
-        notes: list[str] = []
+        cols, titles, note, _ = select_svd_plot_dims(n_dims, *DEFAULT_SVD_DIMS)
         bundle = get_bundle(token)
+        matrix = None
+        viz_ids: list[int] = []
         if bundle is not None and rescale.applied:
             matrix = bundle.rescaled(rescale.mode)
             viz_ids = list(bundle.document_ids)
-            try:
-                panels.append(
-                    (
-                        PANEL_UMAP,
-                        fit_umap(
-                            matrix,
-                            n_neighbors=self.umap_n_neighbors,
-                            min_dist=self.umap_min_dist,
-                            n_components=3,
-                        ),
-                        ("UMAP-1", "UMAP-2", "UMAP-3"),
-                        "UMAP",
-                        viz_ids,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                notes.append(f"UMAP failed: {exc}")
-            try:
-                panels.append(
-                    (
-                        PANEL_TSNE,
-                        fit_tsne(
-                            matrix,
-                            perplexity=self.tsne_perplexity,
-                            n_components=3,
-                        ),
-                        ("t-SNE-1", "t-SNE-2", "t-SNE-3"),
-                        "t-SNE",
-                        viz_ids,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                notes.append(f"t-SNE failed: {exc}")
         else:
-            notes.append("Apply Rescale to include UMAP and t-SNE.")
+            self.status_message = "Apply Rescale to include PCA, UMAP, and t-SNE."
+        return {
+            "svd_coords": X[:, cols],
+            "svd_titles": titles,
+            "svd_label": note,
+            "svd_ids": list(emb.document_ids),
+            "matrix": matrix,
+            "viz_ids": viz_ids,
+            "n_neighbors": self.umap_n_neighbors,
+            "min_dist": self.umap_min_dist,
+            "perplexity": self.tsne_perplexity,
+        }
 
+    def _remember_grid_panel(
+        self,
+        panel: str,
+        coords,
+        titles: tuple,
+        label: str,
+        doc_ids: list[int],
+    ) -> None:
         self._grid_sources = {
+            **self._grid_sources,
             panel: {
                 "coords": coords,
                 "titles": titles,
                 "label": label,
                 "doc_ids": doc_ids,
-            }
-            for panel, coords, titles, label, doc_ids in panels
+            },
         }
-        self._grid_notes = notes
-        await self._render_grid()
+
+    async def _fit_grid_from_snapshot(
+        self,
+        snapshot: dict,
+        notes: list[str],
+        *,
+        fit_pca_panel: bool = False,
+        fit_umap_panel: bool = False,
+    ) -> bool:
+        """Fit SVD + t-SNE by default. PCA/UMAP only when explicitly requested."""
+        matrix = snapshot["matrix"]
+        viz_ids = snapshot["viz_ids"]
+        overlay_held = True
+        pca_skip = (
+            "PCA is off by default so this Cloud VM stays up. "
+            "Click Fit PCA if you want that layout."
+        )
+        umap_skip = (
+            "UMAP is off by default — fitting it can exhaust Cloud RAM. "
+            "Click Fit UMAP if you still want that layout."
+        )
+
+        async with self:
+            keep_pca = self._grid_sources.get(PANEL_PCA) if fit_pca_panel else None
+            keep_umap = self._grid_sources.get(PANEL_UMAP) if fit_umap_panel else None
+            self._grid_sources = {}
+            self.grid_ready_pca = False
+            self.grid_ready_svd_b = False
+            self.grid_ready_umap = False
+            self.grid_ready_tsne = False
+            self.pca_skip_message = "" if fit_pca_panel else pca_skip
+            self.umap_skip_message = "" if fit_umap_panel else umap_skip
+            self._remember_grid_panel(
+                PANEL_SVD_B,
+                snapshot["svd_coords"],
+                snapshot["svd_titles"],
+                snapshot["svd_label"],
+                snapshot["svd_ids"],
+            )
+            if keep_pca is not None:
+                self._grid_sources = {**self._grid_sources, PANEL_PCA: keep_pca}
+            if keep_umap is not None:
+                self._grid_sources = {**self._grid_sources, PANEL_UMAP: keep_umap}
+            self._grid_notes = list(notes)
+            if matrix is not None:
+                busy = await self.get_state(BusyState)
+                busy.message = "Fitting t-SNE…"
+        await self._publish_panels((PANEL_SVD_B,))
+        if matrix is None:
+            async with self:
+                self.pca_skip_message = (
+                    "Apply Rescale before fitting PCA, UMAP, or t-SNE."
+                )
+                self.umap_skip_message = self.pca_skip_message
+            return overlay_held
+
+        try:
+            tsne_coords = await asyncio.to_thread(
+                fit_tsne,
+                matrix,
+                perplexity=snapshot["perplexity"],
+                n_components=3,
+            )
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"t-SNE failed: {exc}")
+            tsne_coords = None
+        async with self:
+            if tsne_coords is not None:
+                self._remember_grid_panel(
+                    PANEL_TSNE,
+                    tsne_coords,
+                    ("t-SNE-1", "t-SNE-2", "t-SNE-3"),
+                    "t-SNE",
+                    viz_ids,
+                )
+            self._grid_notes = list(notes)
+        await self._publish_panels((PANEL_TSNE,))
+
+        if fit_pca_panel:
+            await self._fit_pca_into_grid(snapshot, notes)
+        if fit_umap_panel:
+            await self._fit_umap_into_grid(snapshot, notes)
+
+        async with self:
+            ready_n = sum(
+                1 for panel in GRID_PANELS if getattr(self, _READY_ATTR[panel])
+            )
+            summary = f"Comparison grid: {ready_n} view(s)."
+            self.status_message = " ".join([summary, *notes]) if notes else summary
+            busy = await self.get_state(BusyState)
+            busy.end()
+            overlay_held = False
+        return overlay_held
+
+    async def _fit_pca_into_grid(self, snapshot: dict, notes: list[str]) -> None:
+        matrix = snapshot["matrix"]
+        if matrix is None:
+            return
+        try:
+            pca_coords = await asyncio.to_thread(fit_pca, matrix, n_components=3)
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"PCA failed: {exc}")
+            async with self:
+                self.pca_skip_message = f"PCA failed: {exc}"
+                self._grid_notes = list(notes)
+            return
+        async with self:
+            self._remember_grid_panel(
+                PANEL_PCA,
+                pca_coords,
+                ("PC1", "PC2", "PC3"),
+                "PCA",
+                snapshot["viz_ids"],
+            )
+            self.pca_skip_message = ""
+            self._grid_notes = list(notes)
+        await self._publish_panels((PANEL_PCA,))
+
+    async def _fit_umap_into_grid(self, snapshot: dict, notes: list[str]) -> None:
+        matrix = snapshot["matrix"]
+        if matrix is None:
+            return
+        try:
+            umap_coords = await asyncio.to_thread(
+                fit_umap,
+                matrix,
+                n_neighbors=snapshot["n_neighbors"],
+                min_dist=snapshot["min_dist"],
+                n_components=3,
+            )
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"UMAP failed: {exc}")
+            async with self:
+                self.umap_skip_message = f"UMAP failed: {exc}"
+                self._grid_notes = list(notes)
+            return
+        async with self:
+            self._remember_grid_panel(
+                PANEL_UMAP,
+                umap_coords,
+                ("UMAP-1", "UMAP-2", "UMAP-3"),
+                "UMAP",
+                snapshot["viz_ids"],
+            )
+            self.umap_skip_message = ""
+            self._grid_notes = list(notes)
+        await self._publish_panels((PANEL_UMAP,))
+
+    @rx.event(background=True)
+    async def fit_grid_pca(self):
+        """Fit PCA for the comparison grid without the blocking overlay."""
+        notes: list[str] = []
+        async with self:
+            self.is_fitting_pca = True
+            self.pca_skip_message = "Fitting PCA…"
+            snapshot = await self._grid_inputs()
+            if snapshot is None or snapshot["matrix"] is None:
+                self.is_fitting_pca = False
+                self.pca_skip_message = "Apply Rescale before fitting PCA."
+                return
+        try:
+            await self._fit_pca_into_grid(snapshot, notes)
+        finally:
+            async with self:
+                self.is_fitting_pca = False
+
+    @rx.event(background=True)
+    async def fit_grid_umap(self):
+        """Fit UMAP for the comparison grid without the blocking overlay."""
+        notes: list[str] = []
+        async with self:
+            self.is_fitting_umap = True
+            self.umap_skip_message = "Fitting UMAP…"
+            snapshot = await self._grid_inputs()
+            if snapshot is None or snapshot["matrix"] is None:
+                self.is_fitting_umap = False
+                self.umap_skip_message = "Apply Rescale before fitting UMAP."
+                return
+        try:
+            await self._fit_umap_into_grid(snapshot, notes)
+        finally:
+            async with self:
+                self.is_fitting_umap = False
+
+    async def _publish_panels(self, panels: tuple[str, ...]) -> None:
+        """Build and assign only the named panels so earlier views are not resent."""
+        async with self:
+            ctx = await self._grid_render_context()
+        ctx["sources"] = {
+            panel: ctx["sources"][panel]
+            for panel in panels
+            if panel in ctx["sources"]
+        }
+        payload = self._figures_from_context(ctx)
+        async with self:
+            for panel in panels:
+                setattr(
+                    self, _READY_ATTR[panel], payload["ready"].get(panel, False)
+                )
+                if panel in payload["figures"]:
+                    setattr(self, _FIGURE_ATTR[panel], payload["figures"][panel])
+                    setattr(self, f"grid_title_{panel}", payload["titles"][panel])
+            if payload["book_rows"] is not None:
+                self.plot_books = payload["book_rows"]
+                self.visible_document_ids = payload["visible_ids"]
+            ready_n = sum(
+                1 for panel in GRID_PANELS if getattr(self, _READY_ATTR[panel])
+            )
+            self.has_grid = ready_n > 0
+            notes = ctx["notes"]
+            summary = f"Comparison grid: {ready_n} view(s)."
+            self.status_message = (
+                " ".join([summary, *notes]) if notes else summary
+            )
+        await asyncio.sleep(0)
 
     async def _render_grid(self):
-        """Redraw cached projections with current labels, colours and visibility."""
+        """Redraw while the caller already holds the state lock."""
+        ctx = await self._grid_render_context()
+        payload = self._figures_from_context(ctx)
+        self._apply_grid_payload(payload)
+
+    async def _grid_render_context(self) -> dict:
+        """Snapshot everything figure building needs. Caller must hold the lock."""
         data = await self.get_state(DataState)
         cluster_of, cluster_color = await self._cluster_colors()
-        use_cluster = self.color_mode == COLOR_CLUSTER and bool(cluster_of)
-        show_labels = self.label_mode == LABEL_SHORT
+        return {
+            "sources": dict(self._grid_sources),
+            "notes": list(self._grid_notes),
+            "color_mode": self.color_mode,
+            "label_mode": self.label_mode,
+            "hidden": set(self.hidden_document_ids),
+            "data": SimpleNamespace(
+                document_books=dict(data.document_books),
+                document_labels=dict(data.document_labels),
+                document_corpus=dict(data.document_corpus),
+                document_color_override=dict(data.document_color_override),
+                document_cluster_color_override=dict(
+                    data.document_cluster_color_override
+                ),
+                corpus_default_color=dict(data.corpus_default_color),
+            ),
+            "cluster_of": cluster_of,
+            "cluster_color": cluster_color,
+            "cameras": {panel: self._camera_for(panel) for panel in GRID_PANELS},
+            "uirevisions": {
+                panel: self._uirevision(panel) for panel in GRID_PANELS
+            },
+        }
+
+    def _figures_from_context(self, ctx: dict) -> dict:
+        """CPU/Plotly work — safe to run without the state lock."""
+        sources = ctx["sources"]
+        cluster_of = ctx["cluster_of"]
+        use_cluster = ctx["color_mode"] == COLOR_CLUSTER and bool(cluster_of)
+        show_labels = ctx["label_mode"] == LABEL_SHORT
+        figures: dict = {}
+        titles: dict = {}
+        book_rows = None
+        visible_ids: list[int] = []
         built = 0
-
-        # Clear panels missing from the cache (for example, a failed UMAP fit).
-        for panel in GRID_PANELS:
-            if panel not in self._grid_sources:
-                setattr(self, _FIGURE_ATTR[panel], Figure())
-
-        for panel, source in self._grid_sources.items():
-            coords = source["coords"]
-            titles = source["titles"]
-            label = source["label"]
-            doc_ids = source["doc_ids"]
+        for panel, source in sources.items():
             series = self._point_series(
-                coords,
-                doc_ids,
-                data=data,
+                source["coords"],
+                source["doc_ids"],
+                data=ctx["data"],
                 cluster_of=cluster_of,
-                cluster_color=cluster_color,
+                cluster_color=ctx["cluster_color"],
                 use_cluster=use_cluster,
+                hidden=ctx["hidden"],
             )
             if not series["visible_ids"]:
                 continue
@@ -651,25 +955,45 @@ class PlotState(rx.State):
                 hover_labels=series["hovers"],
                 colors=series["colors"],
                 document_ids=series["visible_ids"],
-                axis_titles=titles,
+                axis_titles=source["titles"],
                 show_labels=show_labels,
                 height=GRID_PANEL_HEIGHT,
-                uirevision=self._uirevision(panel),
+                uirevision=ctx["uirevisions"].get(panel, panel),
                 marker_size=4,
             )
-            figure.update_layout(scene_camera=self._camera_for(panel))
-            setattr(self, _FIGURE_ATTR[panel], figure)
-            setattr(self, f"grid_title_{panel}", label)
+            figure.update_layout(scene_camera=ctx["cameras"].get(panel, {}))
+            figures[panel] = figure
+            titles[panel] = source["label"]
             built += 1
-            if panel == PANEL_SVD_A:
-                self.plot_books = series["book_rows"]
-                self.visible_document_ids = series["visible_ids"]
-
-        self.has_grid = built > 0
+            if panel == PANEL_PCA or (
+                panel == PANEL_SVD_B and PANEL_PCA not in sources
+            ):
+                book_rows = series["book_rows"]
+                visible_ids = series["visible_ids"]
         summary = f"Comparison grid: {built} view(s)."
-        self.status_message = (
-            " ".join([summary, *self._grid_notes]) if self._grid_notes else summary
-        )
+        notes = ctx["notes"]
+        return {
+            "ready": {panel: panel in sources for panel in GRID_PANELS},
+            "figures": figures,
+            "titles": titles,
+            "built": built,
+            "book_rows": book_rows,
+            "visible_ids": visible_ids,
+            "status": " ".join([summary, *notes]) if notes else summary,
+        }
+
+    def _apply_grid_payload(self, payload: dict) -> None:
+        """Write prebuilt figures. Caller must hold the state lock."""
+        for panel in GRID_PANELS:
+            setattr(self, _READY_ATTR[panel], payload["ready"].get(panel, False))
+            if panel in payload["figures"]:
+                setattr(self, _FIGURE_ATTR[panel], payload["figures"][panel])
+                setattr(self, f"grid_title_{panel}", payload["titles"][panel])
+        if payload["book_rows"] is not None:
+            self.plot_books = payload["book_rows"]
+            self.visible_document_ids = payload["visible_ids"]
+        self.has_grid = payload["built"] > 0
+        self.status_message = payload["status"]
 
     async def _cluster_colors(self) -> tuple[dict, dict]:
         """Current dendrogram cut colors, or empty when there is no tree."""
@@ -688,13 +1012,18 @@ class PlotState(rx.State):
         coords,
         doc_ids: list[int],
         *,
-        data: DataState,
+        data,
         cluster_of: dict,
         cluster_color: dict,
         use_cluster: bool,
+        hidden: set | None = None,
     ) -> dict:
         """Per-point arrays for one projection, honouring hidden books."""
-        hidden = set(self.hidden_document_ids)
+        hidden_ids = set(self.hidden_document_ids) if hidden is None else hidden
+        identity_overrides = dict(getattr(data, "document_color_override", {}) or {})
+        cluster_overrides = dict(
+            getattr(data, "document_cluster_color_override", {}) or {}
+        )
         xs: list[float] = []
         ys: list[float] = []
         zs: list[float] = []
@@ -709,15 +1038,17 @@ class PlotState(rx.State):
             short = data.document_books.get(key) or data.document_labels.get(key, key)
             full = data.document_labels.get(key, short)
             corpus = data.document_corpus.get(key, "")
-            identity = (
-                data.document_color_override.get(key)
-                or data.corpus_default_color.get(corpus, FALLBACK_COLOR)
-            )
+            assigned_cluster = None
             if use_cluster and key in cluster_of:
-                color = cluster_color.get(str(cluster_of[key]), identity)
-            else:
-                color = identity
-            visible = key not in hidden
+                assigned_cluster = cluster_color.get(str(cluster_of[key]))
+            color = resolve_book_color(
+                corpus_default=data.corpus_default_color.get(corpus, FALLBACK_COLOR),
+                identity_override=identity_overrides.get(key),
+                cluster_color=assigned_cluster,
+                cluster_override=cluster_overrides.get(key),
+                use_cluster=use_cluster,
+            )
+            visible = key not in hidden_ids
             book_rows.append(
                 {
                     "id": doc_id,
@@ -726,7 +1057,11 @@ class PlotState(rx.State):
                     "corpus": corpus,
                     "color": color,
                     "visible": visible,
-                    "has_override": key in data.document_color_override,
+                    "has_override": (
+                        key in cluster_overrides
+                        if use_cluster
+                        else key in identity_overrides
+                    ),
                 }
             )
             if not visible:
@@ -765,14 +1100,12 @@ class PlotState(rx.State):
             if n_dims < 1:
                 return None, None, None, "Embedding has no dimensions to plot."
 
-            def _clamp(i: int) -> int:
-                return min(max(0, i), n_dims - 1)
-
-            ix, iy, iz = _clamp(self.dim_x), _clamp(self.dim_y), _clamp(self.dim_z)
-            self.dim_x, self.dim_y, self.dim_z = ix, iy, iz
-            coords = X[:, [ix, iy, iz]]
-            titles = (f"Dim {ix}", f"Dim {iy}", f"Dim {iz}")
-            return coords, list(emb.document_ids), titles, f"SVD dims {ix},{iy},{iz}"
+            cols, titles, note, labels = select_svd_plot_dims(
+                n_dims, self.dim_x, self.dim_y, self.dim_z
+            )
+            self.dim_x, self.dim_y, self.dim_z = labels
+            coords = X[:, cols]
+            return coords, list(emb.document_ids), titles, note
 
         # UMAP / t-SNE from rescaled matrix
         if not rescale.applied:
@@ -825,8 +1158,6 @@ class PlotState(rx.State):
             )
             self.is_fitting_viz = False
 
-        self.max_dim_index = 2
-        self.dim_x, self.dim_y, self.dim_z = 0, 1, 2
         titles = (f"{self.method.upper()}-1", f"{self.method.upper()}-2", f"{self.method.upper()}-3")
         note = (
             f"UMAP (nn={self.umap_n_neighbors}, min_dist={self.umap_min_dist})"

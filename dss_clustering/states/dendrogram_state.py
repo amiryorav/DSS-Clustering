@@ -108,14 +108,14 @@ class DendrogramState(rx.State):
 
     @rx.event
     def set_cut_height_draft(self, value: list[float | int] | float | int | str):
-        """Track the thumb while dragging without touching the clustering."""
+        """Track the typed value without touching the clustering yet."""
         h = self._clamp_height(value)
         if h is not None:
             self.cut_height_draft = h
 
     @rx.event
     def set_cut_height(self, value: list[float | int] | float | int | str):
-        """Slider release: cut-height only recolors (no Z refit)."""
+        """Apply a cut height; recolors only (no Z refit)."""
         h = self._clamp_height(value)
         if h is None:
             return

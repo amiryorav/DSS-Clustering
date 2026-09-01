@@ -58,7 +58,12 @@ def main() -> None:
 
     print(f"Loaded {len(pairs)} display names from {args.csv}")
 
-    conn = psycopg2.connect(db_url)
+    conn = psycopg2.connect(
+        db_url,
+        sslmode="allow",
+        gssencmode="disable",
+        connect_timeout=30,
+    )
     try:
         with conn.cursor() as cur:
             execute_values(

@@ -22,6 +22,9 @@ class Document(rx.Model, table=True):
     corpus: str = Field(index=True)
     # Human-readable label shown in the UI; falls back to `book` when empty.
     display_name: str | None = Field(default=None)
+    # Precomputed NNN occurrence counts so the catalog is a documents-only SELECT.
+    n_nnn: int = Field(default=0)
+    n_lemma: int = Field(default=0)
 
 
 class LemmaRow(rx.Model, table=True):

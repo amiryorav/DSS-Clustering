@@ -36,7 +36,7 @@ def google_signin_button() -> rx.Component:
         on_success=AuthState.on_success,
         # Google renders the button itself, so it cannot pick up our palette;
         # switch variants with the color mode instead.
-        theme=rx.color_mode_cond(light="outline", dark="filled_black"),
+        theme="outline",
         size="large",
         shape="pill",
     )

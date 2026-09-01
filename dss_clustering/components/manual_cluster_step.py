@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.manual_cluster_state import ManualClusterState
+
+
+def _cluster_option(opt: dict) -> rx.Component:
+    return rx.select.item(opt["label"], value=opt["value"])
 
 
 def _tip_button(label: str, tip: str, **kwargs) -> rx.Component:
@@ -102,6 +105,39 @@ def manual_cluster_step() -> rx.Component:
             align="center",
         ),
         rx.cond(
+            ManualClusterState.cluster_add_options.length() > 0,
+            rx.hstack(
+                rx.text("Add cluster", size="2", color="gray"),
+                rx.select.root(
+                    rx.select.trigger(placeholder="Dendrogram cluster…"),
+                    rx.select.content(
+                        rx.foreach(
+                            ManualClusterState.cluster_add_options,
+                            _cluster_option,
+                        )
+                    ),
+                    value=ManualClusterState.cluster_to_add,
+                    on_change=ManualClusterState.set_cluster_to_add,
+                    size="2",
+                ),
+                _tip_button(
+                    "Add to group",
+                    "Add every book in that dendrogram cluster to the current group",
+                    on_click=ManualClusterState.add_dendrogram_cluster,
+                    size="2",
+                    variant="soft",
+                ),
+                spacing="2",
+                flex_wrap="wrap",
+                align="center",
+            ),
+            rx.text(
+                "Build the dendrogram to add a whole cluster at once.",
+                size="1",
+                color="gray",
+            ),
+        ),
+        rx.cond(
             ManualClusterState.picking,
             rx.vstack(
                 rx.text(
@@ -153,17 +189,8 @@ def manual_cluster_step() -> rx.Component:
             rx.cond(
                 ~AuthState.is_authenticated,
                 rx.callout(
-                    rx.hstack(
-                        rx.text(
-                            "Groups you save now last until you close the page. "
-                            "Sign in to keep them for next time.",
-                            size="2",
-                        ),
-                        rx.cond(AuthState.has_client_id, google_signin_button()),
-                        spacing="3",
-                        align="center",
-                        flex_wrap="wrap",
-                    ),
+                    "Groups you save now last until you close the page. "
+                    "Sign in at the top of the page to keep them for next time.",
                     icon="info",
                     color_scheme="gray",
                     width="100%",

@@ -14,6 +14,7 @@ from dss_clustering.pipeline.metrics import (
     SCOPE_CORPUS,
     SCOPE_MANUAL,
     build_phase_rows,
+    common_features,
     corpus_wide_stability,
     diff_features,
     nearest_group_by_centroid,
@@ -69,6 +70,28 @@ def test_shared_and_diff_features():
     distinctive, gap = diff_features(frame, [1, 2], [3, 4], n=2)
     assert "a" in distinctive.index
     assert "b" in gap.index
+
+
+def test_common_features_keeps_intersection_ranked_by_union():
+    frame = pd.DataFrame(
+        {
+            "only_x": [10.0, 9.0, 0.0, 0.0],
+            "only_y": [0.0, 0.0, 8.0, 9.0],
+            "shared_high": [6.0, 6.0, 6.0, 6.0],
+            "shared_low": [1.0, 1.0, 1.0, 1.0],
+        },
+        index=[1, 2, 3, 4],
+    )
+    common = common_features(frame, [1, 2], [3, 4], n=3)
+    assert list(common.index) == ["shared_high", "shared_low"]
+    assert "only_x" not in common.index
+    assert "only_y" not in common.index
+
+
+def test_common_features_empty_when_one_side_missing():
+    frame = pd.DataFrame({"a": [1.0, 2.0]}, index=[1, 2])
+    empty = common_features(frame, [1], [], n=2)
+    assert empty.empty
 
 
 def test_ward_merge_height_and_stability_shape():

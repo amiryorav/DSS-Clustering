@@ -21,12 +21,14 @@ from dss_clustering.pipeline.metrics import (
     corpus_purity,
     corpus_wide_stability,
     cosine_distance_embedding,
+    common_features,
     cosine_distance_frame,
     diff_features,
     euclidean_distance_frame,
     nn_consistency_for_cluster,
     nn_consistency_for_group,
     resolve_side,
+    series_to_rows,
     shared_features,
     ward_merge_height,
 )
@@ -40,14 +42,32 @@ SIDE_KINDS = (SCOPE_CORPUS, SCOPE_CLUSTER, SCOPE_MANUAL, SCOPE_BOOK)
 CORPUS_ALL_LABEL = "Entire corpus (all selected books)"
 
 
+def filter_labeled_options(
+    options: list[dict], query: str, selected: str
+) -> list[dict]:
+    """Keep options whose short name, full label, or corpus match ``query``."""
+    q = query.strip().lower()
+    rows: list[dict] = []
+    for option in options:
+        haystack = " ".join(
+            str(option.get(key, "")) for key in ("label", "full", "corpus")
+        ).lower()
+        if q and q not in haystack:
+            continue
+        rows.append({**option, "selected": option.get("value") == selected})
+    return rows
+
+
 class TableState(rx.State):
-    """Top / distinctive / gap tables for an explicit X-versus-Y comparison."""
+    """Top / common / distinctive / gap tables for an X-versus-Y comparison."""
 
     x_kind: str = SCOPE_CORPUS
     x_value: str = "mikra"
     y_kind: str = SCOPE_CORPUS
     y_value: str = CORPUS_ALL
     filter_text: str = ""
+    x_book_search: str = ""
+    y_book_search: str = ""
 
     x_options: list[dict] = []
     y_options: list[dict] = []
@@ -57,6 +77,7 @@ class TableState(rx.State):
     y_label: str = ""
 
     top_rows: list[dict] = []
+    common_rows: list[dict] = []
     distinctive_rows: list[dict] = []
     gap_rows: list[dict] = []
 
@@ -110,9 +131,50 @@ class TableState(rx.State):
     def set_filter_text(self, value: str):
         self.filter_text = value
 
+    @rx.event
+    def set_x_book_search(self, value: str):
+        self.x_book_search = value
+
+    @rx.event
+    def set_y_book_search(self, value: str):
+        self.y_book_search = value
+
+    @rx.event
+    def select_search_book(self, side: str, value: str):
+        chosen = str(value)
+        if side == "x":
+            self.x_value = chosen
+        elif side == "y":
+            self.y_value = chosen
+        else:
+            return
+        return TableState.recompute
+
+    @rx.var(cache=True)
+    def filtered_x_books(self) -> list[dict]:
+        return [
+            {**row, "side": "x"}
+            for row in filter_labeled_options(
+                self.x_options, self.x_book_search, self.x_value
+            )
+        ]
+
+    @rx.var(cache=True)
+    def filtered_y_books(self) -> list[dict]:
+        return [
+            {**row, "side": "y"}
+            for row in filter_labeled_options(
+                self.y_options, self.y_book_search, self.y_value
+            )
+        ]
+
     @rx.var(cache=True)
     def filtered_top_rows(self) -> list[dict]:
         return self._filter_rows(self.top_rows)
+
+    @rx.var(cache=True)
+    def filtered_common_rows(self) -> list[dict]:
+        return self._filter_rows(self.common_rows)
 
     @rx.var(cache=True)
     def filtered_distinctive_rows(self) -> list[dict]:
@@ -131,6 +193,10 @@ class TableState(rx.State):
     @rx.var(cache=True)
     def stability_pct_label(self) -> str:
         return f"{100.0 * self.corpus_wide_stability:.1f}%"
+
+    @rx.var(cache=True)
+    def purity_score_label(self) -> str:
+        return f"{self.purity_score:.3f}"
 
     @rx.var(cache=True)
     def distinctive_subtitle(self) -> str:
@@ -167,6 +233,10 @@ class TableState(rx.State):
     @rx.var(cache=True)
     def top_subtitle(self) -> str:
         return f"in {self.x_display_label}"
+
+    @rx.var(cache=True)
+    def common_subtitle(self) -> str:
+        return f"in both {self.x_display_label} and {self.y_display_label}"
 
     @rx.var(cache=True)
     def export_slug(self) -> str:
@@ -214,15 +284,20 @@ class TableState(rx.State):
                 }
                 for group in manual_groups
             ]
-        rows = [
-            {
-                "value": str(i),
-                "label": data.document_books.get(str(i))
-                or data.document_labels.get(str(i), str(i)),
-            }
-            for i in data.selected_document_ids
-        ]
-        return sorted(rows, key=lambda r: r["label"].lower())
+        rows = []
+        for i in data.selected_document_ids:
+            key = str(i)
+            short = data.document_books.get(key) or data.document_labels.get(key, key)
+            full = data.document_labels.get(key, short)
+            rows.append(
+                {
+                    "value": key,
+                    "label": short,
+                    "full": full,
+                    "corpus": data.document_corpus.get(key, ""),
+                }
+            )
+        return sorted(rows, key=lambda r: str(r["label"]).lower())
 
     @staticmethod
     def _clamp(value: str, options: list[dict]) -> str:
@@ -252,6 +327,7 @@ class TableState(rx.State):
     def _reset_tables(self, message: str):
         self.has_tables = False
         self.top_rows = []
+        self.common_rows = []
         self.distinctive_rows = []
         self.gap_rows = []
         self.show_purity = False
@@ -367,11 +443,14 @@ class TableState(rx.State):
                     frame, x_group, y_group, n=TOP_N
                 )
                 gap = gap_delta.abs()
+                common = common_features(frame, x_group, y_group, n=TOP_N)
             else:
                 distinctive = top.iloc[0:0]
                 gap = top.iloc[0:0]
+                common = top.iloc[0:0]
             rows = build_phase_rows(top, distinctive, gap)
             self.top_rows = rows["top"]
+            self.common_rows = series_to_rows(common, kind="common")
             self.distinctive_rows = rows["distinctive"]
             self.gap_rows = rows["gap"]
 

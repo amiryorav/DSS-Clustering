@@ -5,11 +5,18 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.help import tip_button
-from dss_clustering.states.export_state import ExportState
+from dss_clustering.export.plotly_client import export_plot_script
+from dss_clustering.states.plot_state import (
+    PANEL_SINGLE,
+    _EXPORT_STEM,
+    plot_root_id,
+)
 
 
 def table_export_bar(source: str, kind: str) -> rx.Component:
     """CSV / Excel / PDF buttons for one feature table panel."""
+    from dss_clustering.states.export_state import ExportState
+
     return rx.hstack(
         rx.text("Export", size="1", color="gray"),
         tip_button(
@@ -39,33 +46,30 @@ def table_export_bar(source: str, kind: str) -> rx.Component:
     )
 
 
-def plot_export_bar(*, kind: str) -> rx.Component:
-    """PNG / PDF buttons for a Plotly figure panel."""
+def plot_export_bar(*, kind: str, panel: str | None = None) -> rx.Component:
+    """PNG / PDF buttons that capture the on-screen Plotly view in the browser."""
     if kind == "plot":
-        # The 3D camera lives only in the browser; grab it per export instead of
-        # streaming relayout events, which forced a full WebGL redraw per frame.
-        from dss_clustering.states.plot_state import PlotState
-
-        on_png = PlotState.export_with_camera("png")
-        on_pdf = PlotState.export_with_camera("pdf")
+        target = panel or PANEL_SINGLE
+        root_id = plot_root_id(target)
+        stem = _EXPORT_STEM.get(target, "plot")
     else:
-        on_png = ExportState.export_dendrogram("png")
-        on_pdf = ExportState.export_dendrogram("pdf")
+        root_id = plot_root_id("dendrogram")
+        stem = "dendrogram"
     return rx.hstack(
         rx.text("Export", size="1", color="gray"),
         tip_button(
             "PNG",
-            "Download the current view as PNG",
+            "Download the current on-screen view as PNG",
             size="1",
             variant="soft",
-            on_click=on_png,
+            on_click=rx.call_script(export_plot_script(root_id, "png", stem)),
         ),
         tip_button(
             "PDF",
-            "Download the current view as PDF",
+            "Download the current on-screen view as PDF",
             size="1",
             variant="soft",
-            on_click=on_pdf,
+            on_click=rx.call_script(export_plot_script(root_id, "pdf", stem)),
         ),
         spacing="2",
         align="center",

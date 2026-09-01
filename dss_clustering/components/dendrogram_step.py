@@ -13,6 +13,7 @@ from dss_clustering.pipeline.dendrogram import (
 )
 from dss_clustering.states.dendrogram_state import DendrogramState
 from dss_clustering.states.export_state import ExportState
+from dss_clustering.states.plot_state import plot_root_id
 
 
 def dendrogram_advanced() -> rx.Component:
@@ -79,27 +80,24 @@ def dendrogram_step() -> rx.Component:
             rx.vstack(
                 rx.hstack(
                     rx.text("Cut height", size="2", white_space="nowrap"),
-                    rx.slider(
-                        # Uncontrolled so the thumb tracks the pointer at
-                        # 60fps; `key` resyncs it when a refit moves the cut.
-                        default_value=[DendrogramState.cut_height],
-                        key=DendrogramState.cut_height.to(str),
-                        on_change=DendrogramState.set_cut_height_draft.throttle(80),
-                        on_value_commit=DendrogramState.set_cut_height,
-                        min=0.0,
+                    rx.input(
+                        type="number",
+                        value=DendrogramState.cut_height.to(str),
+                        on_change=DendrogramState.set_cut_height,
+                        min=0,
                         max=DendrogramState.max_height,
                         step=0.001,
-                        width="100%",
+                        width="8rem",
                     ),
                     rx.text(
-                        DendrogramState.cut_height_draft,
-                        size="2",
+                        "0 – " + DendrogramState.max_height.to(str),
+                        size="1",
                         color="gray",
-                        min_width="4rem",
+                        white_space="nowrap",
                     ),
-                    width="100%",
                     align="center",
                     spacing="3",
+                    flex_wrap="wrap",
                 ),
                 rx.hstack(
                     rx.badge(
@@ -132,6 +130,7 @@ def dendrogram_step() -> rx.Component:
                         width="100%",
                         min_width=DendrogramState.figure_min_width,
                     ),
+                    id=plot_root_id("dendrogram"),
                     width="100%",
                     border="1px solid var(--gray-a6)",
                     border_radius="md",

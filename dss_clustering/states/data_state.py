@@ -6,9 +6,9 @@ import asyncio
 from collections import defaultdict
 
 import reflex as rx
-from sqlmodel import func, select
+from sqlmodel import select
 
-from dss_clustering.models import Document, LemmaRow
+from dss_clustering.models import Document
 from dss_clustering.pipeline.fragments import (
     document_ids_with_fragments,
     list_fragments_for_document,
@@ -46,6 +46,8 @@ class DataState(rx.State):
     corpus_default_color: dict[str, str] = dict(DEFAULT_CORPUS_COLORS)
     # keyed by str(document_id); set from the plot step only
     document_color_override: dict[str, str] = {}
+    # per-book overrides while coloring by dendrogram cluster
+    document_cluster_color_override: dict[str, str] = {}
 
     # DSS fragment deselection: document_id str → excluded fragment keys (f13, …)
     excluded_fragments: dict[str, list[str]] = {}
@@ -230,44 +232,28 @@ class DataState(rx.State):
 
     @staticmethod
     def _fetch_document_rows(*, lemma_mode: bool) -> list[tuple]:
-        """Run the catalog aggregation off the event loop when possible."""
+        """Load the catalog from precomputed per-document counts.
+
+        ``n_nnn`` / ``n_lemma`` are maintained at ingest and by Alembic
+        backfill so Home does not GROUP BY lemma_rows on every mount.
+        """
+        count_col = Document.n_lemma if lemma_mode else Document.n_nnn
         with rx.session() as session:
-            statement = (
-                select(
-                    Document.id,
-                    Document.book,
-                    Document.corpus,
-                    Document.display_name,
-                    func.count(LemmaRow.id),
-                )
-                .join(LemmaRow, LemmaRow.document_id == Document.id)
-                .where(LemmaRow.row_type == VALID_ROW_TYPE)
-            )
-            if lemma_mode:
-                # lemma.py applies the >=100 threshold after removing blank lemmas.
-                cleaned_lemma = func.trim(LemmaRow.clean_lemma)
-                statement = (
-                    statement.where(LemmaRow.clean_lemma.is_not(None))
-                    .where(cleaned_lemma != "")
-                    .where(func.lower(cleaned_lemma) != "nan")
-                )
-            return list(
-                session.exec(
-                    statement.group_by(
-                        Document.id,
-                        Document.book,
-                        Document.corpus,
-                        Document.display_name,
-                    ).order_by(Document.corpus, Document.book)
-                ).all()
-            )
+            statement = select(
+                Document.id,
+                Document.book,
+                Document.corpus,
+                Document.display_name,
+                count_col,
+            ).order_by(Document.corpus, Document.book)
+            return list(session.exec(statement).all())
 
     @rx.event(background=True)
     async def load_documents(self):
         """Load documents eligible under the current original-script rules.
 
-        Runs in the background so Home → Start analysis is not queued behind the
-        multi-second lemma-row aggregation that builds the book catalog.
+        Runs in the background so Home → Start analysis is not queued behind
+        catalog setup. Counts are precomputed on ``documents``.
         """
         async with self:
             from dss_clustering.states.feature_state import FeatureState, MODE_LEMMA
@@ -289,7 +275,7 @@ class DataState(rx.State):
             corpus_of: dict[str, str] = {}
 
             for doc_id, book, corpus, display_name, n in rows:
-                if n < min_entries:
+                if int(n or 0) < min_entries:
                     continue
                 label = (display_name or "").strip() or book
                 by_corpus[corpus].append(

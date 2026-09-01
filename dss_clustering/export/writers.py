@@ -118,6 +118,76 @@ def write_excel(rows: Iterable[dict[str, Any]], stem: str) -> tuple[bytes, str, 
     )
 
 
+_EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_BLOCK_WIDTH = 3
+_BLOCK_GAP = 1
+
+
+def write_excel_side_by_side(
+    blocks: Iterable[dict[str, Any]],
+    stem: str,
+) -> tuple[bytes, str, str]:
+    """Write several feature tables on one sheet, in adjacent column blocks."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    packed = list(blocks)
+    if not packed:
+        raise ValueError("No tables to export.")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "features"
+    title_font = Font(bold=True, size=12)
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="DDDDDD")
+    center = Alignment(horizontal="center", wrap_text=True)
+
+    for index, block in enumerate(packed):
+        start = index * (_BLOCK_WIDTH + _BLOCK_GAP) + 1
+        end = start + _BLOCK_WIDTH - 1
+        title = str(block.get("title") or f"Table {index + 1}")
+        subtitle = str(block.get("subtitle") or "")
+        rows = list(block.get("rows") or [])
+
+        ws.merge_cells(
+            start_row=1, start_column=start, end_row=1, end_column=end
+        )
+        title_cell = ws.cell(1, start, title)
+        title_cell.font = title_font
+        title_cell.alignment = center
+
+        ws.merge_cells(
+            start_row=2, start_column=start, end_row=2, end_column=end
+        )
+        subtitle_cell = ws.cell(2, start, subtitle)
+        subtitle_cell.alignment = center
+
+        for offset, header in enumerate(("#", "Signature", "Score"), start=start):
+            cell = ws.cell(3, offset, header)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        for row_index, row in enumerate(rows, start=4):
+            ws.cell(row_index, start, row.get("rank", ""))
+            ws.cell(row_index, start + 1, row.get("signature", ""))
+            ws.cell(row_index, start + 2, row.get("score", ""))
+
+        ws.column_dimensions[get_column_letter(start)].width = 6
+        ws.column_dimensions[get_column_letter(start + 1)].width = 28
+        ws.column_dimensions[get_column_letter(start + 2)].width = 12
+
+    ws.freeze_panes = "A4"
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return (
+        buffer.getvalue(),
+        f"{_safe_stem(stem)}_{_stamp()}.xlsx",
+        _EXCEL_MIME,
+    )
+
+
 def write_pdf_table(
     rows: Iterable[dict[str, Any]],
     stem: str,

@@ -85,18 +85,26 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "title": "3D plot modes",
         "summary": "Explore books in 3D; color by identity or dendrogram clusters.",
         "body": (
-            "SVD mode shows three axes of the analysis embedding that also "
-            "feeds the dendrogram and tables. UMAP and t-SNE are "
+            "SVD mode shows dims 1, 2, and 3 of the analysis embedding by "
+            "default (skipping the first component, which often tracks size). "
+            "Compare 4 views uses the same three SVD axes. "
+            "That embedding also feeds the dendrogram and tables. "
+            "PCA, UMAP, and t-SNE are "
             "visualization-only fits on the active matrix: they never "
             "change clustering, feature tables, or purity / consistency. "
             "Dendrogram-cluster coloring uses the current cut and the same "
-            "palette as the tree. Rotating the plot also updates the camera "
-            "used by PNG and PDF exports. "
+            "palette as the tree. After those cluster colors are applied, you "
+            "can still pick a custom color for any book; Reset restores that "
+            "book's cluster color, and Reset colors to default clears every "
+            "hand-picked color. PNG and PDF capture the current on-screen "
+            "view in the browser, including any rotation you applied. "
             "The zoom, rotate, and reset buttons above each scene move its "
             "camera without touching the mouse; each scene keeps its own view. "
-            "'Compare 4 views' shows SVD dims 0,1,2, SVD dims 1,2,3, UMAP, and "
-            "t-SNE at once. Colour, label, and visibility changes update all "
-            "four panels automatically; 'Rebuild grid' only refits projections. "
+            "'Compare 4 views' shows SVD dims 1,2,3 and t-SNE immediately. "
+            "PCA and UMAP stay off until you click Fit in those cells, so the "
+            "Cloud VM stays up. Colour, label, and visibility changes "
+            "update the fitted panels automatically; 'Rebuild grid' only "
+            "refits projections. Labels start hidden. "
             "Clicking a point starts a fresh manual group when picking is "
             "inactive, then toggles that book in the group."
         ),
@@ -108,7 +116,7 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "body": (
             "Built from the SVD analysis embedding. Ward linkage locks "
             "distance to Euclidean; average linkage may use Euclidean or "
-            "cosine. Releasing the cut-height slider recolors clusters "
+            "cosine. Changing the cut height recolors clusters "
             "without refitting the tree. When Ward-artifact marking is on, gray "
             "italic leaves have less than 20% overlap across top-5 Ward, "
             "SVD-Euclidean, and SVD-cosine neighbors. This is enabled for "
@@ -124,23 +132,25 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "title": "Manual group tool",
         "summary": "Pick books by hand and save them as a named group.",
         "body": (
-            "Start selecting, then click books on the 3D plot or dendrogram. "
-            "Done finishes the pick — name the group and save it. Guests keep "
-            "groups for this visit; signed-in users store them under their "
-            "account. Use a saved group as either side when comparing in "
-            "The numbers."
+            "Start selecting, then click books on the 3D plot or dendrogram, "
+            "or add a whole dendrogram cluster from the dropdown. Done finishes "
+            "the pick — name the group and save it. Guests keep groups for this "
+            "visit; signed-in users store them under their account. Use a saved "
+            "group as either side when comparing in The numbers."
         ),
         "group": "Pipeline",
     },
     "tables": {
         "title": "Feature tables and metrics",
-        "summary": "Compare group X to group Y and list top, distinctive, and gap features.",
+        "summary": "Compare group X to group Y and list top, common, distinctive, and gap features.",
         "body": (
             "Choose subject X and reference Y (corpus, dendrogram cluster, "
-            "saved manual group, or single book). Books shared by both "
-            "sides are removed from Y. Corpus-wide stability is shown above "
-            "the tables; purity appears when X is one book and consistency "
-            "when X is a multi-book group."
+            "saved manual group, or single book). Book lists are searchable "
+            "like the plot colouring list. Books shared by both "
+            "sides are removed from Y. Top features are X only; common "
+            "features appear in both X and Y. Corpus-wide stability is shown "
+            "above the tables; purity appears when X is one book and "
+            "consistency when X is a multi-book group."
         ),
         "group": "Pipeline",
     },
@@ -163,6 +173,18 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "body": (
             "The features this group of books uses most, in absolute terms "
             "— no comparison to anything else."
+        ),
+        "group": "Metrics",
+    },
+    "common_features": {
+        "title": "Common features",
+        "summary": "Features used in both X and Y, ranked by combined usage.",
+        "body": (
+            "Signatures that appear in both the subject and the reference "
+            "(mean usage greater than zero on each side), ranked by how "
+            "common they are across the combined X and Y books. Useful for "
+            "seeing what a book or cluster shares with its neighbors, not "
+            "what sets them apart."
         ),
         "group": "Metrics",
     },
@@ -234,6 +256,21 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         ),
         "group": "Methods",
     },
+    "pca": {
+        "title": "PCA (visualization only)",
+        "summary": "A linear 3D layout of the weighted matrix; analysis results stay unchanged.",
+        "body": (
+            "Principal Component Analysis of the active weighted count "
+            "matrix, mean-centered, showing the first three components. "
+            "Unlike UMAP and t-SNE, PCA is not compressed with Truncated SVD "
+            "first — it uses the original (densified) matrix. Unlike the SVD "
+            "panel — uncentered Truncated SVD of the analysis embedding that "
+            "also feeds the tree — PCA is visualization-only. It does not "
+            "change clustering, tables, or metrics. The comparison grid "
+            "leaves PCA off until you click Fit PCA, so Cloud RAM stays free."
+        ),
+        "group": "Methods",
+    },
     "umap": {
         "title": "UMAP (visualization only)",
         "summary": "A 3D layout for exploration; it does not change analysis results.",
@@ -241,9 +278,10 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
             "A nonlinear 3D layout of the active matrix for exploration. "
             "It does not feed the dendrogram, tables, or metrics. "
             "The fit first compresses the wide count matrix with TruncatedSVD "
-            "(50 components) so UMAP finishes in seconds instead of stalling "
-            "on thousands of sparse features. n_neighbors and min_dist trade "
-            "local versus global structure in the drawing."
+            "(50 components). The comparison grid leaves UMAP off until you "
+            "click Fit UMAP, because the fit can exhaust the Cloud VM; you can "
+            "also choose UMAP in the single-view plot. n_neighbors and min_dist "
+            "trade local versus global structure in the drawing."
         ),
         "group": "Methods",
     },

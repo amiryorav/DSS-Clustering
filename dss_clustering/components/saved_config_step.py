@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import reflex as rx
 
-from dss_clustering.components.google_signin import google_signin_button
 from dss_clustering.states.auth_state import AuthState
 from dss_clustering.states.saved_config_state import SavedConfigState
 
@@ -95,16 +94,8 @@ def saved_config_step() -> rx.Component:
                 align="start",
             ),
             rx.callout(
-                rx.hstack(
-                    rx.text(
-                        "Working as guest. Sign in to save presets to your account.",
-                        size="2",
-                    ),
-                    rx.cond(AuthState.has_client_id, google_signin_button()),
-                    spacing="3",
-                    align="center",
-                    flex_wrap="wrap",
-                ),
+                "Working as guest. Sign in at the top of the page to save "
+                "presets to your account.",
                 icon="info",
                 color_scheme="gray",
                 width="100%",

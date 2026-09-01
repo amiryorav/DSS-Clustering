@@ -74,7 +74,9 @@ CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS documents (
     id SERIAL PRIMARY KEY,
     book VARCHAR NOT NULL UNIQUE,
-    corpus VARCHAR NOT NULL
+    corpus VARCHAR NOT NULL,
+    n_nnn INTEGER NOT NULL DEFAULT 0,
+    n_lemma INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS ix_documents_book ON documents (book);
 CREATE INDEX IF NOT EXISTS ix_documents_corpus ON documents (corpus);
@@ -144,6 +146,25 @@ def resolve_db_url(cli_url: str | None) -> str:
     if not url:
         sys.exit("DATABASE_URL is not set (pass --db-url or put it in .env)")
     return url
+
+
+def connect(db_url: str):
+    """Open a Postgres connection.
+
+    sslmode=allow: this Windows client hangs on the TLS handshake when the
+    URL forces sslmode=require against the Supabase pooler. allow tries a
+    non-SSL connection first and still upgrades if the server requires TLS.
+    """
+    return psycopg2.connect(
+        db_url,
+        sslmode="allow",
+        gssencmode="disable",
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+    )
 
 
 def nullify(value) -> str | None:
@@ -321,6 +342,43 @@ def copy_lemma_rows(conn, df, book_to_id: dict[str, int], chunk_size: int) -> No
     print("COPY done.")
 
 
+def refresh_document_counts(conn) -> None:
+    """Store NNN / lexical-lemma totals on documents so the app catalog is cheap."""
+    print("Refreshing documents.n_nnn / n_lemma ...")
+    with conn.cursor() as cur:
+        cur.execute("UPDATE documents SET n_nnn = 0, n_lemma = 0")
+        cur.execute(
+            """
+            UPDATE documents AS d
+            SET n_nnn = sub.n
+            FROM (
+                SELECT document_id, COUNT(*) AS n
+                FROM lemma_rows
+                WHERE row_type = 'NNN'
+                GROUP BY document_id
+            ) AS sub
+            WHERE d.id = sub.document_id
+            """
+        )
+        cur.execute(
+            """
+            UPDATE documents AS d
+            SET n_lemma = sub.n
+            FROM (
+                SELECT document_id, COUNT(*) AS n
+                FROM lemma_rows
+                WHERE row_type = 'NNN'
+                  AND clean_lemma IS NOT NULL
+                  AND BTRIM(clean_lemma) <> ''
+                  AND LOWER(BTRIM(clean_lemma)) <> 'nan'
+                GROUP BY document_id
+            ) AS sub
+            WHERE d.id = sub.document_id
+            """
+        )
+    conn.commit()
+
+
 def verify(conn, df) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM documents")
@@ -381,14 +439,15 @@ def main() -> None:
     df = load_dataframe(args.pkl)
     df = prepare_frame(df)
 
-    print(f"Connecting to database ...")
-    conn = psycopg2.connect(db_url)
+    print("Connecting to database ...")
+    conn = connect(db_url)
     try:
         ensure_empty_or_replace(
             conn, replace=args.replace, create_tables=args.create_tables
         )
         book_to_id = upsert_documents(conn, df)
         copy_lemma_rows(conn, df, book_to_id, chunk_size=args.chunk_size)
+        refresh_document_counts(conn)
         verify(conn, df)
     finally:
         conn.close()

@@ -8,9 +8,4 @@ regions:
 vmtype: c1m1
 hostname: dss-clustering
 envfile: .env
-packages:
-  # Kaleido / Plotly static export needs Chromium tooling on Linux VMs.
-  - chromium
-  - fonts-noto
-  - fonts-noto-cjk
 strategy: immediate
