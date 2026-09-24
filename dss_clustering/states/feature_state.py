@@ -36,7 +36,6 @@ class FeatureState(rx.State):
             self.mode = value
             # Match the two originals: lemma plateau >=70, morphology >=50,
             # and Ward-artifact leaf marking only in morphology.
-            from dss_clustering.states.data_state import DataState
             from dss_clustering.states.dendrogram_state import DendrogramState
             from dss_clustering.states.svd_state import SVDState
 
@@ -44,7 +43,7 @@ class FeatureState(rx.State):
             svd.plateau_min = 70 if value == MODE_LEMMA else 50
             dendro = await self.get_state(DendrogramState)
             dendro.mark_ward_artifacts = value == MODE_MORPHOLOGY
-            return [DataState.load_documents, self._invalidate_matrix()]
+            return self._invalidate_matrix()
 
     @rx.event
     def toggle_morph_column(self, column: str):

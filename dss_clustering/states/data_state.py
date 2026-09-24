@@ -231,20 +231,21 @@ class DataState(rx.State):
         return self._invalidate_matrix()
 
     @staticmethod
-    def _fetch_document_rows(*, lemma_mode: bool) -> list[tuple]:
-        """Load the catalog from precomputed per-document counts.
+    def _fetch_document_rows() -> list[tuple]:
+        """Load the catalog from precomputed per-document NNN counts.
 
-        ``n_nnn`` / ``n_lemma`` are maintained at ingest and by Alembic
-        backfill so Home does not GROUP BY lemma_rows on every mount.
+        ``n_nnn`` is maintained at ingest and by Alembic backfill so Home
+        does not GROUP BY lemma_rows on every mount. Eligibility uses NNN
+        rows only; lemma mode still drops blank clean_lemma when counting
+        features downstream.
         """
-        count_col = Document.n_lemma if lemma_mode else Document.n_nnn
         with rx.session() as session:
             statement = select(
                 Document.id,
                 Document.book,
                 Document.corpus,
                 Document.display_name,
-                count_col,
+                Document.n_nnn,
             ).order_by(Document.corpus, Document.book)
             return list(session.exec(statement).all())
 
@@ -256,18 +257,12 @@ class DataState(rx.State):
         catalog setup. Counts are precomputed on ``documents``.
         """
         async with self:
-            from dss_clustering.states.feature_state import FeatureState, MODE_LEMMA
-
-            features = await self.get_state(FeatureState)
-            lemma_mode = features.mode == MODE_LEMMA
             min_entries = self.min_entries_per_book
             self.is_loading = True
             self.status_message = "Loading documents..."
 
         try:
-            rows = await asyncio.to_thread(
-                DataState._fetch_document_rows, lemma_mode=lemma_mode
-            )
+            rows = await asyncio.to_thread(DataState._fetch_document_rows)
 
             by_corpus: dict[str, list[dict]] = defaultdict(list)
             labels: dict[str, str] = {}
@@ -344,8 +339,7 @@ class DataState(rx.State):
                     ]
                 self.status_message = (
                     f"Loaded {total} books/scrolls "
-                    f"(min {'non-empty lemma' if lemma_mode else 'valid'} rows "
-                    f">= {min_entries})."
+                    f"(min NNN rows >= {min_entries})."
                 )
                 self.is_loading = False
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI

@@ -17,9 +17,9 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.metrics import pairwise_distances
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
-from sqlmodel import func, select
+from sqlmodel import select
 
-from dss_clustering.models import Document, LemmaRow
+from dss_clustering.models import Document
 from dss_clustering.pipeline.aggregate import (
     count_matrix_from_groups,
     signature_count_query,
@@ -36,20 +36,10 @@ THRESHOLD = 0.2
 
 def eligible_documents() -> list[int]:
     with rx.session() as session:
-        statement = (
-            select(Document.id, func.count(LemmaRow.id))
-            .join(LemmaRow, LemmaRow.document_id == Document.id)
-            .where(LemmaRow.row_type == "NNN")
-        )
-        if MODE == "lemma":
-            cleaned = func.trim(LemmaRow.clean_lemma)
-            statement = (
-                statement.where(LemmaRow.clean_lemma.is_not(None))
-                .where(cleaned != "")
-                .where(func.lower(cleaned) != "nan")
-            )
-        rows = session.exec(statement.group_by(Document.id)).all()
-    return [int(doc_id) for doc_id, n in rows if n >= MIN_ROWS]
+        rows = session.exec(
+            select(Document.id).where(Document.n_nnn >= MIN_ROWS)
+        ).all()
+    return [int(doc_id) for doc_id in rows]
 
 
 def original_flagged(embedding: np.ndarray, Z: np.ndarray, ids: list[int]) -> set[int]:

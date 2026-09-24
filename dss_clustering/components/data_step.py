@@ -120,7 +120,7 @@ def data_advanced() -> rx.Component:
 
     return under_hood(
         rx.hstack(
-            rx.text("Minimum valid rows per book", size="2", white_space="nowrap"),
+            rx.text("Minimum NNN rows per book", size="2", white_space="nowrap"),
             rx.input(
                 type="number",
                 value=DataState.min_entries_per_book.to(str),

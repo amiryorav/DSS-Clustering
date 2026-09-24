@@ -24,10 +24,11 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "title": "Data selection",
         "summary": "Choose which books and scrolls enter the experiment.",
         "body": (
-            "Choose which books and scrolls enter the experiment. Only "
-            "row_type = NNN rows count toward eligibility; in lemma mode, "
-            "blank clean_lemma rows are excluded before the minimum-entries "
-            "check. Identity colors are edited on the 3D plot."
+            "Choose which books and scrolls enter the experiment. The "
+            "minimum-entries threshold counts row_type = NNN rows per book "
+            "(including rows with blank clean_lemma). Lemma mode still "
+            "ignores blank clean_lemma when building word features. "
+            "Identity colors are edited on the 3D plot."
         ),
         "group": "Pipeline",
     },
