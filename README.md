@@ -6,6 +6,10 @@ Pick books, choose lemma or morphology features, build a book × signature matri
 
 Live site: https://dss-clustering.reflex.run
 
+## Quick guide
+
+[![Quick guide](https://img.youtube.com/vi/xeCl2L_JISw/hqdefault.jpg)](https://www.youtube.com/watch?v=xeCl2L_JISw)
+
 A longer walkthrough of the page and the analysis is in [APP_OVERVIEW.md](APP_OVERVIEW.md).
 
 ## Run locally
