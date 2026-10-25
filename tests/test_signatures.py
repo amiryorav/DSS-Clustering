@@ -76,6 +76,34 @@ def test_proper_name_rows_collapse_when_included():
     )
 
 
+def test_proper_name_rows_keep_attributes_when_not_collapsed():
+    df = pd.DataFrame(
+        {
+            "pos": ["Verb", "Noun"],
+            "gender": ["M", "F"],
+            "number": ["S", "P"],
+            "subtype": ["properName", "common"],
+        }
+    )
+    cols = ["pos", "gender", "number", "subtype"]
+    got = build_signatures_vectorized(df, cols, collapse_proper_names=False)
+    expected = df.apply(
+        lambda r: row_signature(
+            r.to_dict(), cols, collapse_proper_names=False
+        ),
+        axis=1,
+    )
+    assert list(got) == [
+        "pos=Verb|gender=M|number=S|subtype=properName",
+        "pos=Noun|gender=F|number=P|subtype=common",
+    ]
+    pd.testing.assert_series_equal(
+        got.reset_index(drop=True),
+        expected.reset_index(drop=True),
+        check_names=False,
+    )
+
+
 def test_empty_columns_yield_empty_signature():
     df = pd.DataFrame({"pos": ["Verb"], "gender": ["M"]})
     got = build_signatures_vectorized(df, [])

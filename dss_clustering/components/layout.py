@@ -98,44 +98,105 @@ def app_header() -> rx.Component:
     )
 
 
+class FooterState(rx.State):
+    """The research row is a local preview. The live site keeps the credit line."""
+
+    on_localhost: bool = False
+
+    @rx.event
+    def apply_host(self, hostname: str):
+        self.on_localhost = hostname in ("localhost", "127.0.0.1")
+
+
+# Title, name, profile link, portrait. Order matches the research page request.
+_RESEARCH_PEOPLE = (
+    (
+        "Professor",
+        "Eshbal Ratzon",
+        "https://humanities.tau.ac.il/profile/eshbal",
+        "/people/eshbal.jpg",
+    ),
+    (
+        "Full Professor",
+        "Lee-Ad Gottlieb",
+        "https://pniot.ariel.ac.il/projects/trp/GeneralInformation.asp?numRec=364",
+        "/people/lee-ad.jpg",
+    ),
+    (
+        "Dr.",
+        "Hallel Baitner",
+        "https://mandelschool.huji.ac.il/people/%D7%94%D7%9C%D7%9C-%D7%91%D7%99%D7%99%D7%98%D7%A0%D7%A8",
+        "/people/hallel.jpg",
+    ),
+    (
+        "Professor Emeritus",
+        "Nachum Dershowitz",
+        "https://exact-sciences.tau.ac.il/profile/nachumd",
+        "/people/nachum.jpg",
+    ),
+    (
+        "PhD student",
+        "Amir Yorav",
+        "https://github.com/amiryorav/",
+        "/people/amir.png",
+    ),
+)
+
+
+def _person_card(title: str, name: str, href: str, src: str) -> rx.Component:
+    return rx.vstack(
+        rx.image(
+            src=src,
+            alt=name,
+            width="4.5rem",
+            height="4.5rem",
+            border_radius="9999px",
+            object_fit="cover",
+        ),
+        rx.text(title, size="1", color="gray", text_align="center"),
+        rx.link(
+            name,
+            href=href,
+            is_external=True,
+            size="2",
+            weight="medium",
+            text_align="center",
+        ),
+        spacing="1",
+        align="center",
+        width="9rem",
+    )
+
+
+def _research_people() -> rx.Component:
+    return rx.hstack(
+        *[_person_card(*person) for person in _RESEARCH_PEOPLE],
+        spacing="5",
+        align="start",
+        justify="center",
+        flex_wrap="wrap",
+        width="100%",
+    )
+
+
+def _credit_line() -> rx.Component:
+    return rx.hstack(
+        rx.text("Amir Yorav", size="2", weight="medium"),
+        rx.text("·", size="2", color="gray"),
+        rx.link(CONTACT_EMAIL, href=f"mailto:{CONTACT_EMAIL}", size="2"),
+        rx.text("·", size="2", color="gray"),
+        rx.link("GitHub", href=GITHUB_URL, is_external=True, size="2"),
+        spacing="2",
+        align="center",
+        flex_wrap="wrap",
+        justify="center",
+        width="100%",
+    )
+
+
 def app_footer() -> rx.Component:
     return rx.box(
-        rx.vstack(
-            rx.hstack(
-                rx.button(
-                    "About",
-                    size="1",
-                    variant="ghost",
-                    on_click=NavState.go_home,
-                ),
-                rx.text("·", size="2", color="gray"),
-                rx.button(
-                    "How to use",
-                    size="1",
-                    variant="ghost",
-                    on_click=NavState.go_help,
-                ),
-                spacing="1",
-                align="center",
-                justify="center",
-                width="100%",
-            ),
-            rx.hstack(
-                rx.text("Amir Yorav", size="2", weight="medium"),
-                rx.text("·", size="2", color="gray"),
-                rx.link(CONTACT_EMAIL, href=f"mailto:{CONTACT_EMAIL}", size="2"),
-                rx.text("·", size="2", color="gray"),
-                rx.link("GitHub", href=GITHUB_URL, is_external=True, size="2"),
-                spacing="2",
-                align="center",
-                flex_wrap="wrap",
-                justify="center",
-                width="100%",
-            ),
-            spacing="2",
-            width="100%",
-            align="center",
-        ),
+        rx.cond(FooterState.on_localhost, _research_people(), _credit_line()),
         width="100%",
         padding_y="1.25rem",
         padding_x="1.5rem",

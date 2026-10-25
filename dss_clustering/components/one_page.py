@@ -27,15 +27,53 @@ from dss_clustering.states.plot_state import PlotState
 from dss_clustering.styles import ACCENT, BLURB_SIZE, MAX_CONTENT, MAX_TEXT, BRAND_NAME
 
 
+def _guide_video() -> rx.Component:
+    """Small quick-guide player. Sits beside the headline, not above the page."""
+    return rx.box(
+        rx.el.iframe(
+            src="https://www.youtube.com/embed/xeCl2L_JISw",
+            title="Quick guide",
+            width="100%",
+            height="100%",
+            allow=(
+                "accelerometer; autoplay; clipboard-write; encrypted-media; "
+                "gyroscope; picture-in-picture; web-share"
+            ),
+            allow_full_screen=True,
+            style={
+                "border": "0",
+                "border_radius": "var(--radius-3)",
+            },
+        ),
+        width="20rem",
+        max_width="100%",
+        aspect_ratio="16 / 9",
+        flex_shrink="0",
+    )
+
+
 def _hero() -> rx.Component:
     return rx.box(
         rx.vstack(
-            rx.heading(BRAND_NAME, size="9", weight="bold"),
-            rx.text(
-                ABOUT_SUMMARY,
-                size="5",
-                color="gray",
-                max_width=MAX_TEXT,
+            rx.hstack(
+                rx.vstack(
+                    rx.heading(BRAND_NAME, size="9", weight="bold"),
+                    rx.text(
+                        ABOUT_SUMMARY,
+                        size="5",
+                        color="gray",
+                        max_width=MAX_TEXT,
+                    ),
+                    spacing="4",
+                    align="start",
+                    flex="1",
+                    min_width="16rem",
+                ),
+                _guide_video(),
+                spacing="6",
+                align="center",
+                width="100%",
+                flex_wrap="wrap",
             ),
             rx.text(ABOUT_BODY, size=BLURB_SIZE, max_width=MAX_TEXT),
             tip_button(

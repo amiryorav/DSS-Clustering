@@ -22,6 +22,7 @@ def _fingerprint(
     feature_mode: str,
     active_columns: list[str],
     ignore_proper_names: bool,
+    collapse_proper_names: bool,
     excluded_fragments: dict | None = None,
 ) -> str:
     excl = excluded_fragments or {}
@@ -36,6 +37,7 @@ def _fingerprint(
         "mode": feature_mode,
         "cols": list(active_columns),
         "ignore": bool(ignore_proper_names),
+        "collapse": bool(collapse_proper_names),
         "excl": excl_norm,
     }
     raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
@@ -82,6 +84,7 @@ class VectorizeState(rx.State):
             features.mode,
             list(features.active_columns),
             bool(features.should_ignore_proper_names),
+            bool(features.should_collapse_proper_names),
             dict(data.excluded_fragments),
         )
         self.is_stale = (not self.has_matrix) or (fp != self.built_fingerprint)
@@ -95,6 +98,7 @@ class VectorizeState(rx.State):
             active_columns = list(features.active_columns)
             feature_mode = features.mode
             ignore = bool(features.should_ignore_proper_names)
+            collapse = bool(features.should_collapse_proper_names)
             excluded = dict(data.excluded_fragments)
             document_books = dict(data.document_books)
             token = self._client_token()
@@ -132,6 +136,7 @@ class VectorizeState(rx.State):
                         active_columns,
                         row_type=VALID_ROW_TYPE,
                         ignore_proper_names=ignore,
+                        collapse_proper_names=collapse,
                         excluded_fragments=excluded,
                         document_books=document_books,
                     )
@@ -169,7 +174,7 @@ class VectorizeState(rx.State):
             )
             del groups
             fp = _fingerprint(
-                doc_ids, feature_mode, active_columns, ignore, excluded
+                doc_ids, feature_mode, active_columns, ignore, collapse, excluded
             )
             put_bundle(
                 token,
@@ -202,6 +207,7 @@ class VectorizeState(rx.State):
                 self.built_summary = (
                     f"{feature_mode} · {cols}"
                     + (" · ignore proper-name" if ignore else "")
+                    + (" · collapse proper-name" if collapse else "")
                 )
                 self.status_message = (
                     f"Built {self.n_documents} × {self.n_signatures} count matrix "

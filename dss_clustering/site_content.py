@@ -14,7 +14,7 @@ ABOUT_SUMMARY = (
 )
 
 ABOUT_BODY = (
-    "Hebrew Stylometry Explorer turns a large annotated corpus into a "
+    "Ancient Hebrew Clustering turns a large annotated corpus into a "
     "guided experiment: pick books, choose lemma or morphology features, "
     "build a book × signature matrix, reduce and cluster it, then inspect "
     "which features distinguish one group from another. It is meant for "

@@ -122,6 +122,7 @@ def make_dendrogram_figure(
     cluster_colors: dict[int, str],
     cut_height: float,
     ward_artifact_document_ids: set[int] | None = None,
+    leaf_keeps_artifact_color: list[bool] | None = None,
     label_font_size: int = DEFAULT_LABEL_FONT_SIZE,
 ) -> go.Figure:
     """Draw SciPy dendrogram geometry as Plotly traces (spec §8.7)."""
@@ -183,6 +184,8 @@ def make_dendrogram_figure(
     leaf_clusters = [int(cluster_ids[i]) for i in leaves]
     artifact_ids = ward_artifact_document_ids or set()
     leaf_is_artifact = [doc_id in artifact_ids for doc_id in leaf_docs]
+    keep_flags = leaf_keeps_artifact_color or [False] * n
+    leaf_keeps_color = [bool(keep_flags[i]) for i in leaves]
 
     traces.append(
         go.Scatter(
@@ -207,22 +210,30 @@ def make_dendrogram_figure(
     # Rotated per-leaf annotations: Scatter text cannot be angled, and tick
     # labels cannot carry a per-book identity color.
     annotations = []
-    for x, text, color, is_artifact in zip(
-        leaf_x, leaf_text, leaf_colors, leaf_is_artifact
+    for x, text, color, is_artifact, keeps_color in zip(
+        leaf_x, leaf_text, leaf_colors, leaf_is_artifact, leaf_keeps_color
     ):
+        # Every leaf is HTML with an inline color. Plain text lets Plotly
+        # drop the name on a linkage switch and draw the gray x position
+        # instead, and font.color is ignored once any leaf uses HTML.
+        gray_artifact = is_artifact and not keeps_color
+        shown = "#808080" if gray_artifact else color
+        safe_text = escape(text)
+        body = f"<i>{safe_text}</i>" if is_artifact else safe_text
+        label = f'<span style="color:{escape(shown, quote=True)}">{body}</span>'
         annotations.append(
             {
             "x": x,
             "y": 0.0,
-            "text": f"<i>{escape(text)}</i>" if is_artifact else escape(text),
+            "text": label,
             "showarrow": False,
             "textangle": -90,
             "xanchor": "center",
             "yanchor": "top",
             "yshift": -10,
             "font": {
-                "size": max(9, label_font_size - 2) if is_artifact else label_font_size,
-                "color": "#808080" if is_artifact else color,
+                "size": max(9, label_font_size - 2) if gray_artifact else label_font_size,
+                "color": shown,
             },
         }
         )

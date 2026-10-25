@@ -140,6 +140,7 @@ class SavedConfigState(rx.State):
         ] or list(config.morph_columns)
         # Spec field name; project maps it to ignore_proper_names.
         features.ignore_proper_names = bool(config.apply_proper_name_exception)
+        features.collapse_proper_names = bool(config.collapse_proper_names)
 
         rescale.mode = config.rescale_mode
 
@@ -193,6 +194,7 @@ class SavedConfigState(rx.State):
             linkage_method=dendro.linkage_method,
             distance_metric=dendro.distance_metric,
             cut_height=float(dendro.cut_height),
+            collapse_proper_names=bool(features.collapse_proper_names),
             excluded_fragments={
                 str(k): list(v)
                 for k, v in (data.excluded_fragments or {}).items()

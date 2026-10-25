@@ -31,6 +31,8 @@ class AnalysisConfig:
     cut_height: float
     # document_id str → excluded DSS fragment keys (e.g. ["f13"])
     excluded_fragments: dict[str, list[str]] = field(default_factory=dict)
+    # Kept proper-name rows become subtype=properName when True.
+    collapse_proper_names: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -74,4 +76,5 @@ class AnalysisConfig:
             distance_metric=str(data["distance_metric"]),
             cut_height=float(data["cut_height"]),
             excluded_fragments=excluded,
+            collapse_proper_names=bool(data.get("collapse_proper_names", True)),
         )

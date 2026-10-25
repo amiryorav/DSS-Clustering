@@ -5,7 +5,12 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.help import tip_button
-from dss_clustering.states.data_state import DataState
+from dss_clustering.states.data_state import (
+    LEMMA_COUNT_NNN,
+    LEMMA_COUNT_WITH_VALUE,
+    DataState,
+)
+from dss_clustering.states.feature_state import MODE_LEMMA, FeatureState
 
 
 def _fragment_row(doc_id, frag: dict) -> rx.Component:
@@ -53,7 +58,7 @@ def _document_row(doc: dict) -> rx.Component:
             rx.text(doc["label"], weight="medium"),
             rx.spacer(),
             rx.text(doc["n_entries"], size="2", color="gray"),
-            rx.text("valid rows", size="2", color="gray"),
+            rx.text(DataState.count_unit, size="2", color="gray"),
             width="100%",
             padding_y="0.2rem",
             align="center",
@@ -118,9 +123,52 @@ def data_advanced() -> rx.Component:
     """Under-the-hood: the minimum-valid-rows threshold and a catalog reload."""
     from dss_clustering.components.section import under_hood
 
+    lemma_row_minimum = (FeatureState.mode == MODE_LEMMA) & (
+        DataState.lemma_min_count == LEMMA_COUNT_WITH_VALUE
+    )
     return under_hood(
+        rx.cond(
+            FeatureState.mode == MODE_LEMMA,
+            rx.vstack(
+                rx.text("Minimum count uses", weight="medium", size="2"),
+                rx.segmented_control.root(
+                    rx.segmented_control.item(
+                        "All NNN rows",
+                        value=LEMMA_COUNT_NNN,
+                    ),
+                    rx.segmented_control.item(
+                        "Rows with a lemma",
+                        value=LEMMA_COUNT_WITH_VALUE,
+                    ),
+                    value=DataState.lemma_min_count,
+                    on_change=DataState.set_lemma_min_count,
+                    size="1",
+                ),
+                rx.text(
+                    "All NNN rows includes occurrences with no lemma value. "
+                    "Rows with a lemma counts only occurrences that have one.",
+                    size="1",
+                    color="gray",
+                ),
+                spacing="2",
+                align="start",
+                width="100%",
+            ),
+        ),
         rx.hstack(
-            rx.text("Minimum NNN rows per book", size="2", white_space="nowrap"),
+            rx.cond(
+                lemma_row_minimum,
+                rx.text(
+                    "Minimum lemma rows per book",
+                    size="2",
+                    white_space="nowrap",
+                ),
+                rx.text(
+                    "Minimum NNN rows per book",
+                    size="2",
+                    white_space="nowrap",
+                ),
+            ),
             rx.input(
                 type="number",
                 value=DataState.min_entries_per_book.to(str),

@@ -299,6 +299,7 @@ class DendrogramState(rx.State):
 
         leaf_labels: list[str] = []
         leaf_colors: list[str] = []
+        leaf_keeps_color: list[bool] = []
         for doc_id in doc_ids:
             key = str(doc_id)
             short = data.document_books.get(key) or data.document_labels.get(
@@ -306,10 +307,11 @@ class DendrogramState(rx.State):
             )
             leaf_labels.append(short)
             corpus = data.document_corpus.get(key, "")
+            custom = data.document_color_override.get(key)
             leaf_colors.append(
-                data.document_color_override.get(key)
-                or data.corpus_default_color.get(corpus, FALLBACK_COLOR)
+                custom or data.corpus_default_color.get(corpus, FALLBACK_COLOR)
             )
+            leaf_keeps_color.append(bool(custom))
 
         try:
             self.figure = make_dendrogram_figure(
@@ -321,6 +323,7 @@ class DendrogramState(rx.State):
                 cluster_colors=color_by_cluster,
                 cut_height=self.cut_height,
                 ward_artifact_document_ids=set(self.ward_artifact_document_ids),
+                leaf_keeps_artifact_color=leaf_keeps_color,
             )
             leaf_customdata = self.figure.data[-1].customdata
             self.leaf_document_ids = [
@@ -336,7 +339,7 @@ class DendrogramState(rx.State):
             self.n_documents = len(doc_ids)
             self.has_tree = True
             artifact_note = (
-                f"; {len(self.ward_artifact_document_ids)} gray-italic Ward artifacts"
+                f"; {len(self.ward_artifact_document_ids)} italic Ward artifacts"
                 if bundle.linkage_method == LINKAGE_WARD and self.mark_ward_artifacts
                 else ""
             )

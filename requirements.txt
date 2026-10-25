@@ -1,4 +1,6 @@
 reflex[db]==0.9.8
+# rx.Model imports SQLAlchemy asyncio, which needs greenlet at process start.
+greenlet>=3.1.0
 psycopg2-binary==2.9.12
 python-dotenv==1.2.2
 pandas>=2.2.0

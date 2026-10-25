@@ -28,6 +28,16 @@ FALLBACK_COLOR = "#888888"
 # Only these lemma rows count as analysable occurrences.
 VALID_ROW_TYPE = "NNN"
 
+# How the Words-mode catalog applies the minimum-entries threshold.
+# Grammar mode always uses NNN row counts.
+LEMMA_COUNT_NNN = "nnn"
+LEMMA_COUNT_WITH_VALUE = "lemma"
+
+
+def uses_lemma_row_minimum(*, feature_mode: str, lemma_min_count: str) -> bool:
+    """True when Words mode should require rows that have a lemma value."""
+    return feature_mode == "lemma" and lemma_min_count == LEMMA_COUNT_WITH_VALUE
+
 
 class DataState(rx.State):
     """Book selection (spec 8.1). Plot-area colors live here for redraw only."""
@@ -56,6 +66,11 @@ class DataState(rx.State):
     fragment_cache: dict[str, list[dict]] = {}
 
     min_entries_per_book: int = 100
+    # Words mode only. ``nnn`` counts every NNN row; ``lemma`` counts only
+    # NNN rows that have a non-blank clean_lemma (the previous catalog rule).
+    lemma_min_count: str = LEMMA_COUNT_NNN
+    # Label for the number shown beside each book after the last catalog load.
+    count_unit: str = "NNN rows"
     search_text: str = ""
     status_message: str = ""
     is_loading: bool = False
@@ -79,6 +94,17 @@ class DataState(rx.State):
         except (TypeError, ValueError):
             return
         self.min_entries_per_book = max(0, n)
+
+    @rx.event
+    def set_lemma_min_count(self, value: str | list[str]):
+        """Choose whether Words-mode eligibility counts all NNN rows or lemma rows."""
+        chosen = value[0] if isinstance(value, list) else value
+        if chosen not in (LEMMA_COUNT_NNN, LEMMA_COUNT_WITH_VALUE):
+            return
+        if chosen == self.lemma_min_count:
+            return
+        self.lemma_min_count = chosen
+        return [DataState.load_documents, self._invalidate_matrix()]
 
     @rx.event
     def toggle_document(self, document_id: int):
@@ -232,12 +258,11 @@ class DataState(rx.State):
 
     @staticmethod
     def _fetch_document_rows() -> list[tuple]:
-        """Load the catalog from precomputed per-document NNN counts.
+        """Load the catalog from precomputed per-document counts.
 
-        ``n_nnn`` is maintained at ingest and by Alembic backfill so Home
-        does not GROUP BY lemma_rows on every mount. Eligibility uses NNN
-        rows only; lemma mode still drops blank clean_lemma when counting
-        features downstream.
+        ``n_nnn`` / ``n_lemma`` are maintained at ingest so Home does not
+        GROUP BY lemma_rows on every mount. Which column filters the catalog
+        depends on feature mode and ``lemma_min_count``.
         """
         with rx.session() as session:
             statement = select(
@@ -246,6 +271,7 @@ class DataState(rx.State):
                 Document.corpus,
                 Document.display_name,
                 Document.n_nnn,
+                Document.n_lemma,
             ).order_by(Document.corpus, Document.book)
             return list(session.exec(statement).all())
 
@@ -257,6 +283,13 @@ class DataState(rx.State):
         catalog setup. Counts are precomputed on ``documents``.
         """
         async with self:
+            from dss_clustering.states.feature_state import FeatureState
+
+            features = await self.get_state(FeatureState)
+            use_lemma_rows = uses_lemma_row_minimum(
+                feature_mode=features.mode,
+                lemma_min_count=self.lemma_min_count,
+            )
             min_entries = self.min_entries_per_book
             self.is_loading = True
             self.status_message = "Loading documents..."
@@ -269,7 +302,8 @@ class DataState(rx.State):
             books: dict[str, str] = {}
             corpus_of: dict[str, str] = {}
 
-            for doc_id, book, corpus, display_name, n in rows:
+            for doc_id, book, corpus, display_name, n_nnn, n_lemma in rows:
+                n = n_lemma if use_lemma_rows else n_nnn
                 if int(n or 0) < min_entries:
                     continue
                 label = (display_name or "").strip() or book
@@ -337,9 +371,11 @@ class DataState(rx.State):
                     self.selected_document_ids = [
                         i for i in self.selected_document_ids if i in eligible
                     ]
+                basis = "lemma rows" if use_lemma_rows else "NNN rows"
+                self.count_unit = basis
                 self.status_message = (
                     f"Loaded {total} books/scrolls "
-                    f"(min NNN rows >= {min_entries})."
+                    f"(min {basis} >= {min_entries})."
                 )
                 self.is_loading = False
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI

@@ -51,7 +51,7 @@ def dendrogram_advanced() -> rx.Component:
             DendrogramState.linkage_method == LINKAGE_WARD,
             rx.vstack(
                 rx.checkbox(
-                    "Mark Ward artifacts as gray italic leaves",
+                    "Mark Ward artifacts as italic leaves",
                     checked=DendrogramState.mark_ward_artifacts,
                     on_change=DendrogramState.set_mark_ward_artifacts,
                     size="2",
@@ -59,8 +59,9 @@ def dendrogram_advanced() -> rx.Component:
                 rx.cond(
                     DendrogramState.mark_ward_artifacts,
                     rx.text(
-                        "Gray italic leaf = Ward artifact (top-5 three-view "
-                        "overlap < 20%).",
+                        "Italic leaf = Ward artifact (top-5 three-view "
+                        "overlap < 20%). A custom book color stays; other "
+                        "artifact leaves are gray.",
                         color="gray",
                         size="1",
                     ),
@@ -126,6 +127,9 @@ def dendrogram_step() -> rx.Component:
                             data=DendrogramState.figure,
                             on_click=DendrogramState.on_leaf_click,
                             width="100%",
+                            # Remount when linkage changes so Plotly cannot
+                            # reuse Ward leaf text as gray x positions.
+                            key=DendrogramState.linkage_method,
                         ),
                         width="100%",
                         min_width=DendrogramState.figure_min_width,

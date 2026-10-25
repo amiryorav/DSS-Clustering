@@ -19,8 +19,8 @@ BLURB_SIZE = "4"
 BODY_SIZE = "3"
 GITHUB_URL = "https://github.com/amiryorav/DSS-Clustering"
 CONTACT_EMAIL = "amiryorav@gmail.com"
-BRAND_NAME = "Hebrew Stylometry Explorer"
+BRAND_NAME = "Ancient Hebrew Clustering"
 BRAND_TAGLINE = (
     "Interactive lexical and morphological comparison of Mikra, Mishna, and DSS."
 )
-EXPORT_FOOTER = "Hebrew Stylometry Explorer By Amir Yorav"
+EXPORT_FOOTER = "Ancient Hebrew Clustering By Amir Yorav"

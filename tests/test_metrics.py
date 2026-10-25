@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from scipy.cluster.hierarchy import linkage
 
-from dss_clustering.pipeline.dendrogram import make_dendrogram_figure
+from dss_clustering.pipeline.dendrogram import fit_linkage, make_dendrogram_figure
 from dss_clustering.pipeline.metrics import (
     CORPUS_ALL,
     SCOPE_BOOK,
@@ -166,5 +166,47 @@ def test_ward_artifact_leaf_is_gray_and_italic():
         ward_artifact_document_ids={11},
     )
     annotation = next(a for a in fig.layout.annotations if "B" in a.text)
-    assert annotation.text == "<i>B</i>"
+    assert annotation.text == '<span style="color:#808080"><i>B</i></span>'
     assert annotation.font.color == "#808080"
+
+
+def test_custom_colored_ward_artifact_stays_colored_and_italic():
+    embedding = np.array([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]])
+    Z = linkage(embedding, method="ward")
+    fig = make_dendrogram_figure(
+        Z,
+        document_ids=[10, 11, 12],
+        leaf_labels=["A", "B", "C"],
+        leaf_identity_colors=["red", "green", "blue"],
+        cluster_ids=np.array([1, 1, 2]),
+        cluster_colors={1: "orange", 2: "purple"},
+        cut_height=1.5,
+        ward_artifact_document_ids={11},
+        leaf_keeps_artifact_color=[False, True, False],
+    )
+    annotation = next(a for a in fig.layout.annotations if "B" in a.text)
+    assert annotation.text == '<span style="color:green"><i>B</i></span>'
+    assert annotation.font.color == "green"
+    assert annotation.font.size == 13
+
+
+def test_average_linkage_keeps_book_names_and_colors():
+    rng = np.random.default_rng(0)
+    embedding = rng.normal(size=(8, 3))
+    labels = [f"Book{i}" for i in range(8)]
+    colors = ["#D62728", "#1414F5", "#1BBB1B", "#29A9E0", "#E755CA", "#CEA609", "#252E7E", "#257E52"]
+    Z = fit_linkage(embedding, method="average", metric="euclidean")
+    fig = make_dendrogram_figure(
+        Z,
+        document_ids=list(range(8)),
+        leaf_labels=labels,
+        leaf_identity_colors=colors,
+        cluster_ids=np.ones(8, dtype=int),
+        cluster_colors={1: "#1F77B4"},
+        cut_height=float(Z[:, 2].max()) * 0.5,
+    )
+    texts = [a.text for a in fig.layout.annotations]
+    assert len(texts) == 8
+    assert all("Book" in text for text in texts)
+    assert all('style="color:#' in text for text in texts)
+    assert all("<i>" not in text for text in texts)

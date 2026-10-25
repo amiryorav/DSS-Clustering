@@ -24,11 +24,12 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "title": "Data selection",
         "summary": "Choose which books and scrolls enter the experiment.",
         "body": (
-            "Choose which books and scrolls enter the experiment. The "
-            "minimum-entries threshold counts row_type = NNN rows per book "
-            "(including rows with blank clean_lemma). Lemma mode still "
-            "ignores blank clean_lemma when building word features. "
-            "Identity colors are edited on the 3D plot."
+            "Choose which books and scrolls enter the experiment. Grammar "
+            "mode always applies the minimum to row_type = NNN rows. In "
+            "Words mode, the same minimum can count every NNN row "
+            "(including blank clean_lemma) or only NNN rows that have a "
+            "lemma value. Building word features still ignores blank "
+            "lemmas. Identity colors are edited on the 3D plot."
         ),
         "group": "Pipeline",
     },
@@ -38,10 +39,10 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
         "body": (
             "Lemma mode signs each occurrence as its clean lemma. Morphology "
             "mode joins the selected grammatical attributes into one "
-            "signature string (e.g. pos=Verb|gender=M|number=S). When "
-            "proper-name rows are kept, they collapse to the atomic "
-            "signature subtype=properName; the ignore toggle drops them "
-            "from the experiment entirely."
+            "signature string (e.g. pos=Verb|gender=M|number=S). Proper-name "
+            "rows can collapse to the single feature subtype=properName, or "
+            "keep their other selected grammar attributes. The ignore toggle "
+            "drops them from the experiment entirely."
         ),
         "group": "Pipeline",
     },
@@ -118,9 +119,11 @@ HELP_CONTENT: dict[str, dict[str, str]] = {
             "Built from the SVD analysis embedding. Ward linkage locks "
             "distance to Euclidean; average linkage may use Euclidean or "
             "cosine. Changing the cut height recolors clusters "
-            "without refitting the tree. When Ward-artifact marking is on, gray "
+            "without refitting the tree. When Ward-artifact marking is on, "
             "italic leaves have less than 20% overlap across top-5 Ward, "
-            "SVD-Euclidean, and SVD-cosine neighbors. This is enabled for "
+            "SVD-Euclidean, and SVD-cosine neighbors. A book with a custom "
+            "color keeps that color and is only italic; other artifact "
+            "leaves are gray. This is enabled for "
             "morphology only: lemma features flag roughly a quarter of the "
             "corpus versus about a tenth for morphology, so the mode switch "
             "turns it on for morphology and off for lemma. The count also "

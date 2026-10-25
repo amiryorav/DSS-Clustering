@@ -29,7 +29,11 @@ from dss_clustering.pipeline.signatures import (
 EMPTY_SIGNATURE = "EMPTY"
 
 
-def _signature_expression(selected_columns: Sequence[str]):
+def _signature_expression(
+    selected_columns: Sequence[str],
+    *,
+    collapse_proper_names: bool = True,
+):
     """SQL equivalent of ``row_signature`` for the given column order."""
     missing = tuple(MISSING_STRINGS)
     parts = []
@@ -48,7 +52,7 @@ def _signature_expression(selected_columns: Sequence[str]):
     joined = func.concat_ws("|", *parts)
     normal = func.coalesce(func.nullif(joined, ""), EMPTY_SIGNATURE)
     # Lemma mode has no proper-name atomic signature (lemma.py).
-    if tuple(selected_columns) == ("clean_lemma",):
+    if tuple(selected_columns) == ("clean_lemma",) or not collapse_proper_names:
         return normal
     # morphological.py: subtype=properName collapses the whole row.
     return case(
@@ -66,6 +70,7 @@ def signature_count_query(
     *,
     row_type: str,
     ignore_proper_names: bool,
+    collapse_proper_names: bool = True,
     excluded_fragments: Mapping[int, Sequence[str]]
     | Mapping[str, Sequence[str]]
     | None = None,
@@ -75,7 +80,10 @@ def signature_count_query(
     if not selected_columns:
         raise ValueError("No feature columns selected")
 
-    signature = _signature_expression(selected_columns)
+    signature = _signature_expression(
+        selected_columns,
+        collapse_proper_names=collapse_proper_names,
+    )
     query = (
         select(
             LemmaRow.document_id,

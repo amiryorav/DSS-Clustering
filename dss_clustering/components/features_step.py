@@ -85,9 +85,7 @@ def _ignore_proper_names_toggle() -> rx.Component:
         rx.vstack(
             rx.text("Ignore proper-name", weight="medium", size="2"),
             rx.text(
-                "When checked, subtype=properName rows are dropped. "
-                "When unchecked, they are kept as the atomic signature "
-                "subtype=properName (other morph attributes ignored).",
+                "When checked, subtype=properName rows are dropped from the experiment.",
                 size="1",
                 color="gray",
             ),
@@ -95,6 +93,33 @@ def _ignore_proper_names_toggle() -> rx.Component:
             align="start",
         ),
         spacing="3",
+        align="start",
+        width="100%",
+    )
+
+
+def _collapse_proper_names_toggle() -> rx.Component:
+    return rx.vstack(
+        rx.text(
+            "Collapse proper names into one feature",
+            weight="medium",
+            size="2",
+        ),
+        rx.segmented_control.root(
+            rx.segmented_control.item("Yes", value="yes"),
+            rx.segmented_control.item("No", value="no"),
+            value=FeatureState.collapse_proper_names_value,
+            on_change=FeatureState.set_collapse_proper_names,
+            size="1",
+        ),
+        rx.text(
+            "Yes maps every subtype=properName row to the single feature "
+            "subtype=properName. No keeps the other selected grammar "
+            "attributes on those rows.",
+            size="1",
+            color="gray",
+        ),
+        spacing="2",
         align="start",
         width="100%",
     )
@@ -112,6 +137,10 @@ def features_advanced() -> rx.Component:
         rx.cond(
             FeatureState.show_ignore_proper_names,
             _ignore_proper_names_toggle(),
+        ),
+        rx.cond(
+            FeatureState.show_collapse_proper_names,
+            _collapse_proper_names_toggle(),
         ),
         _active_columns(),
     )

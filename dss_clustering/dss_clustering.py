@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from dss_clustering.components.help_page import help_page
-from dss_clustering.components.layout import page_shell
+from dss_clustering.components.layout import FooterState, page_shell
 from dss_clustering.components.one_page import one_page
 from dss_clustering.models import (  # noqa: F401
     AnalysisPreset,
@@ -23,6 +23,7 @@ from dss_clustering.states.nav_state import (
     NavState,
 )
 from dss_clustering.states.saved_config_state import SavedConfigState
+from dss_clustering.styles import BRAND_NAME
 
 
 def _main_body() -> rx.Component:
@@ -46,9 +47,14 @@ def index() -> rx.Component:
             ManualClusterState.load_saved_groups,
             SavedConfigState.load_presets,
             AuthState.ensure_synced,
+            rx.call_script("window.location.hostname", FooterState.apply_host),
         ],
     )
 
 
 app = rx.App()
-app.add_page(index, title="Hebrew Stylometry Explorer")
+app.add_page(
+    index,
+    title=BRAND_NAME,
+    meta=[rx.el.link(rel="icon", href="/icon.png", type="image/png")],
+)

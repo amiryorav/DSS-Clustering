@@ -1,9 +1,10 @@
 """Signature construction for lemma / morphology feature modes (spec §8.2–8.3).
 
 Proper-name rows (``subtype == "properName"``) collapse to the atomic signature
-``subtype=properName``, matching the original morphological notebook. When
-``ignore_proper_names`` is set, those rows are dropped from the experiment
-entirely before signatures / counts are built.
+``subtype=properName`` when ``collapse_proper_names`` is set, matching the
+original morphological notebook. When it is off, those rows keep the other
+selected grammar attributes. When ``ignore_proper_names`` is set, the rows
+are dropped from the experiment entirely before signatures are built.
 """
 
 from __future__ import annotations
@@ -52,15 +53,19 @@ def _is_lemma_only(selected_columns: list[str]) -> bool:
 def row_signature(
     values: dict[str, Any],
     selected_columns: list[str],
+    *,
+    collapse_proper_names: bool = True,
 ) -> str:
     """Reference per-row signature rule.
 
     Faster paths (vectorized / SQL) must match this exactly. Proper-name rows
-    must already have been filtered out when ignore-proper-name is on; when
-    kept, morphology signatures collapse to ``subtype=properName``.
+    must already have been filtered out when ignore-proper-name is on. When
+    they are kept and ``collapse_proper_names`` is set, morphology signatures
+    collapse to ``subtype=properName``.
     """
     if (
-        not _is_lemma_only(selected_columns)
+        collapse_proper_names
+        and not _is_lemma_only(selected_columns)
         and values.get("subtype") == PROPER_NAME_SUBTYPE
     ):
         return PROPER_NAME_SIGNATURE
@@ -76,6 +81,8 @@ def row_signature(
 def build_signatures_vectorized(
     df: pd.DataFrame,
     selected_columns: list[str],
+    *,
+    collapse_proper_names: bool = True,
 ) -> pd.Series:
     """Vectorized equivalent of :func:`row_signature`."""
     if not selected_columns:
@@ -99,7 +106,11 @@ def build_signatures_vectorized(
         .fillna("EMPTY")
     )
 
-    if not _is_lemma_only(selected_columns) and "subtype" in df.columns:
+    if (
+        collapse_proper_names
+        and not _is_lemma_only(selected_columns)
+        and "subtype" in df.columns
+    ):
         is_proper = df["subtype"] == PROPER_NAME_SUBTYPE
         signatures = signatures.where(~is_proper, PROPER_NAME_SIGNATURE)
 

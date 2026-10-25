@@ -4,9 +4,26 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _database_url() -> str | None:
+    """Use the psycopg2 driver we install, not SQLAlchemy's default.
+
+    A plain ``postgresql://`` URL follows whatever dialect the installed
+    SQLAlchemy treats as default. A fresh Cloud image can pick psycopg 3,
+    which is not a dependency, and the book catalog then fails to connect.
+    """
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        return None
+    for prefix in ("postgresql+psycopg://", "postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg2://" + url[len(prefix) :]
+    return url
+
+
 config = rx.Config(
     app_name="dss_clustering",
-    db_url=os.getenv("DATABASE_URL"),
+    db_url=_database_url(),
     # Cloud Redis: default 10s lock expires while serializing 3D Plotly grids.
     redis_lock_expiration=120_000,
     redis_lock_warning_threshold=30_000,

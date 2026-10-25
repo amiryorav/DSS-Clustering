@@ -20,6 +20,7 @@ def build_count_matrix(
     selected_columns: list[str],
     *,
     ignore_proper_names: bool = False,
+    collapse_proper_names: bool = True,
     document_ids: list[int] | None = None,
 ) -> tuple[sp.csr_matrix, list[int], list[str], int]:
     """Build book × signature count matrix from lemma rows.
@@ -47,7 +48,11 @@ def build_count_matrix(
         empty = sp.csr_matrix((len(doc_ids), 0), dtype=np.float64)
         return empty, doc_ids, [], 0
 
-    sig = build_signatures_vectorized(filtered, selected_columns)
+    sig = build_signatures_vectorized(
+        filtered,
+        selected_columns,
+        collapse_proper_names=collapse_proper_names,
+    )
 
     if document_ids is not None:
         doc_cat = pd.Categorical(filtered["document_id"], categories=document_ids)
